@@ -66,7 +66,70 @@ def identify_changed_symbols(
         )
 
     added_lines = sorted(file_diff.added_lines)
-    if not added_lines:
+
+    # Extract deletion events: (new_line, del_run)
+    deletion_events: list[tuple[int, list[str]]] = []
+    for hunk in file_diff.hunks:
+        current_new_line = hunk.new_start
+        i = 0
+        hunk_lines = hunk.lines
+        while i < len(hunk_lines):
+            hline = hunk_lines[i]
+            if (hline.startswith("+") and not hline.startswith("+++")) or hline.startswith(" "):
+                current_new_line += 1
+                i += 1
+            elif hline.startswith("-") and not hline.startswith("---"):
+                del_run: list[str] = []
+                while i < len(hunk_lines) and hunk_lines[i].startswith("-") and not hunk_lines[i].startswith("---"):
+                    del_run.append(hunk_lines[i][1:])
+                    i += 1
+                deletion_events.append((current_new_line, del_run))
+            else:
+                i += 1
+
+    # Map deletions to symbols and line numbers in the new file
+    symbol_deleted_lines: dict[str, set[int]] = {sym.id: set() for sym in file_analysis.symbols}
+    unmapped_deletion_lines: set[int] = set()
+
+    for new_line, del_run in deletion_events:
+        code_lines = [line for line in del_run if line.strip() and not line.strip().startswith("#")]
+        if not code_lines:
+            continue
+
+        first_code = code_lines[0]
+        first_indent = len(first_code) - len(first_code.lstrip(" "))
+        has_decorator = any(line.lstrip().startswith("@") for line in code_lines)
+
+        mapped_to_sym = False
+
+        for sym in file_analysis.symbols:
+            start_ln = sym.location.start_line
+            end_ln = sym.location.end_line
+            sym_indent = sym.location.start_col or 0
+
+            # Condition A: Deletion strictly inside symbol body
+            if start_ln < new_line <= end_ln:
+                symbol_deleted_lines[sym.id].add(new_line)
+                mapped_to_sym = True
+            # Condition B: Deletion at the end of symbol body
+            elif new_line == end_ln + 1:
+                if first_indent > sym_indent and not first_code.lstrip().startswith(("def ", "class ", "async def ")):
+                    symbol_deleted_lines[sym.id].add(end_ln)
+                    mapped_to_sym = True
+            # Condition C: Deletion of decorator at start of symbol
+            elif new_line == start_ln and has_decorator:
+                if first_indent == sym_indent:
+                    symbol_deleted_lines[sym.id].add(start_ln)
+                    mapped_to_sym = True
+
+        if not mapped_to_sym and new_line > 0:
+            unmapped_deletion_lines.add(new_line)
+
+    all_changed_lines: set[int] = set(added_lines)
+    for del_lines in symbol_deleted_lines.values():
+        all_changed_lines.update(del_lines)
+
+    if not all_changed_lines and not unmapped_deletion_lines:
         return ChangedSymbolsResult(
             file_path=file_path,
             changed_symbols=[],
@@ -75,10 +138,10 @@ def identify_changed_symbols(
             deleted_lines_note=deleted_note,
         )
 
-    # For each added line, find all matching symbols and pick the innermost
-    line_to_symbols: dict[int, list[Symbol]] = {line: [] for line in added_lines}
+    # For each changed line, find all matching symbols and pick the innermost
+    line_to_symbols: dict[int, list[Symbol]] = {line: [] for line in all_changed_lines}
     for sym in file_analysis.symbols:
-        for line in added_lines:
+        for line in all_changed_lines:
             if sym.location.contains_line(line):
                 line_to_symbols[line].append(sym)
 
@@ -98,7 +161,12 @@ def identify_changed_symbols(
             line_to_innermost[line] = innermost
 
     # Collect module-level changes
-    module_lines = [line for line, sym in line_to_innermost.items() if sym is None]
+    module_lines = sorted(line for line, sym in line_to_innermost.items() if sym is None)
+    for u_line in unmapped_deletion_lines:
+        if not any(sym.location.contains_line(u_line) for sym in file_analysis.symbols) and u_line not in module_lines:
+            module_lines.append(u_line)
+    module_lines.sort()
+
     module_changes: list[ModuleLevelChange] = []
     if module_lines:
         module_changes.append(
@@ -114,7 +182,9 @@ def identify_changed_symbols(
     all_innermost_ids = {sym.id for sym in line_to_innermost.values() if sym is not None}
 
     for sym in file_analysis.symbols:
-        sym_overlapping = [line for line in added_lines if sym.location.contains_line(line)]
+        sym_added = [line for line in added_lines if sym.location.contains_line(line)]
+        sym_deleted = list(symbol_deleted_lines.get(sym.id, set()))
+        sym_overlapping = sorted(set(sym_added) | set(sym_deleted))
         if not sym_overlapping:
             continue
 

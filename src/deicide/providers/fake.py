@@ -122,7 +122,18 @@ class FakeProvider:
 
             all_context_text = "\n".join(context_lines.values())
 
-            for line_no in sorted(added_set):
+            eval_lines = set(added_set)
+            for hunk in file_entry.get("hunks", []):
+                if not isinstance(hunk, dict):
+                    continue
+                old_count = int(hunk.get("old_count", 0))
+                if old_count > 0:
+                    new_start = int(hunk.get("new_start", 1))
+                    new_count = int(hunk.get("new_count", 0))
+                    for ln in range(new_start, new_start + new_count):
+                        eval_lines.add(ln)
+
+            for line_no in sorted(eval_lines):
                 line_text = context_lines.get(line_no, "")
                 stripped = line_text.strip()
                 if not stripped or stripped.startswith("#"):
