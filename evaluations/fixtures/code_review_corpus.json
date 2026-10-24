@@ -1,0 +1,92 @@
+[
+  {
+    "case_id": "pos_div_by_zero_unhandled_len",
+    "description": "Unchecked division by len(scores) raises ZeroDivisionError on empty input.",
+    "diff_text": "diff --git a/src/metrics.py b/src/metrics.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/metrics.py\n@@ -0,0 +1,3 @@\n+def compute_mean(scores: list[float]) -> float:\n+    return sum(scores) / len(scores)\n+\n",
+    "file_contents": {
+      "src/metrics.py": "def compute_mean(scores: list[float]) -> float:\n    return sum(scores) / len(scores)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/metrics.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 2
+        },
+        "category": "boundary_condition"
+      }
+    ]
+  },
+  {
+    "case_id": "pos_mutable_default_arg",
+    "description": "Mutable default list leaks state across calls.",
+    "diff_text": "diff --git a/src/AuditLog.py b/src/AuditLog.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/AuditLog.py\n@@ -0,0 +1,3 @@\n+def append_event(event: str, history=[]) -> list[str]:\n+    history.append(event)\n+    return history\n",
+    "file_contents": {
+      "src/AuditLog.py": "def append_event(event: str, history=[]) -> list[str]:\n    history.append(event)\n    return history\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/AuditLog.py",
+        "line_range": {
+          "start_line": 1,
+          "end_line": 1
+        },
+        "category": "state_mutation"
+      }
+    ]
+  },
+  {
+    "case_id": "pos_off_by_one_loop",
+    "description": "Off-by-one upper bound in range(len(items) + 1) causes IndexError.",
+    "diff_text": "diff --git a/src/batch.py b/src/batch.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/batch.py\n@@ -0,0 +1,5 @@\n+def sum_items(items: list[int]) -> int:\n+    total = 0\n+    for idx in range(len(items) + 1):\n+        total += items[idx]\n+    return total\n",
+    "file_contents": {
+      "src/batch.py": "def sum_items(items: list[int]) -> int:\n    total = 0\n    for idx in range(len(items) + 1):\n        total += items[idx]\n    return total\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/batch.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 3
+        },
+        "category": "boundary_condition"
+      }
+    ]
+  },
+  {
+    "case_id": "pos_silent_exception_swallow",
+    "description": "Silent exception swallowing hides runtime errors.",
+    "diff_text": "diff --git a/src/worker.py b/src/worker.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/worker.py\n@@ -0,0 +1,5 @@\n+def parse_payload(raw: str) -> int:\n+    try:\n+        return int(raw)\n+    except Exception: pass\n+    return 0\n",
+    "file_contents": {
+      "src/worker.py": "def parse_payload(raw: str) -> int:\n    try:\n        return int(raw)\n    except Exception: pass\n    return 0\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/worker.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 4
+        },
+        "category": "error_handling"
+      }
+    ]
+  },
+  {
+    "case_id": "neg_guarded_average",
+    "description": "Properly guarded average calculation should produce zero findings.",
+    "diff_text": "diff --git a/src/safe_metrics.py b/src/safe_metrics.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/safe_metrics.py\n@@ -0,0 +1,4 @@\n+def compute_safe_mean(scores: list[float]) -> float:\n+    if not scores:\n+        return 0.0\n+    return sum(scores) / len(scores)\n",
+    "file_contents": {
+      "src/safe_metrics.py": "def compute_safe_mean(scores: list[float]) -> float:\n    if not scores:\n        return 0.0\n    return sum(scores) / len(scores)\n"
+    },
+    "expected_findings": []
+  },
+  {
+    "case_id": "neg_clean_context_manager",
+    "description": "Safe immutable default and context-managed file read should produce zero findings.",
+    "diff_text": "diff --git a/src/loader.py b/src/loader.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/loader.py\n@@ -0,0 +1,6 @@\n+def read_lines(path: str, extra: list[str] | None = None) -> list[str]:\n+    items = list(extra) if extra is not None else []\n+    with open(path, encoding=\"utf-8\") as handle:\n+        items.extend(handle.read().splitlines())\n+    return items\n",
+    "file_contents": {
+      "src/loader.py": "def read_lines(path: str, extra: list[str] | None = None) -> list[str]:\n    items = list(extra) if extra is not None else []\n    with open(path, encoding=\"utf-8\") as handle:\n        items.extend(handle.read().splitlines())\n    return items\n"
+    },
+    "expected_findings": []
+  }
+]
