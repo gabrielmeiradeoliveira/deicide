@@ -13,8 +13,8 @@ from deicide.core.models import (
     ProviderInfo,
 )
 from deicide.core.registry import ModuleRegistry
-from deicide.core.validation import deduplicate_findings, validate_candidates
 from deicide.git.analyzer import GitAnalyzer
+from deicide.intelligence.pipeline import FindingIntelligenceEngine
 from deicide.providers.base import LLMProvider
 from deicide.quota.store import UsageStore
 
@@ -121,8 +121,7 @@ class AnalysisOrchestrator:
                 message=f"Context Engine fallback: {context_summary.fallback_reason}",
             )
 
-        all_validated = []
-        total_rejected = 0
+        candidates_by_module: list[tuple[str, list[CandidateFinding]]] = []
 
         for module in selected_modules:
             tracker.check_elapsed_time()
@@ -141,18 +140,20 @@ class AnalysisOrchestrator:
                     provider=self.provider,
                     tracker=tracker,
                 )
-            validated, rejected_count, val_warnings = validate_candidates(
-                module_id=module.module_id,
-                candidates=candidates,
-                diff_bundle=diff_bundle,
-                contexts=contexts,
-                repo_root=git_analyzer.repo_root,
-            )
-            all_validated.extend(validated)
-            total_rejected += rejected_count
-            tracker.warnings.extend(val_warnings)
+            candidates_by_module.append((module.module_id, candidates))
 
-        deduped_findings, deduped_count = deduplicate_findings(all_validated)
+        intelligence_engine = FindingIntelligenceEngine()
+        intelligence_result = intelligence_engine.process_multi_module_candidates(
+            candidates_by_module=candidates_by_module,
+            diff_bundle=diff_bundle,
+            contexts=contexts,
+            repo_root=git_analyzer.repo_root,
+            context_result=context_result,
+        )
+        tracker.warnings.extend(intelligence_result.warnings)
+        deduped_findings = intelligence_result.findings
+        total_rejected = intelligence_result.rejected_count
+        deduped_count = intelligence_result.deduplicated_count
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         incomplete_warning_codes = {

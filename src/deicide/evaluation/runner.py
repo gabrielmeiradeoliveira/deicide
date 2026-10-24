@@ -8,7 +8,6 @@ from pathlib import Path
 
 from deicide.core.models import BudgetTracker, ExecutionBudget, TokenUsage
 from deicide.core.registry import AnalysisModule
-from deicide.core.validation import deduplicate_findings, validate_candidates
 from deicide.evaluation.models import (
     CaseEvaluationResult,
     EvaluationFixture,
@@ -16,6 +15,7 @@ from deicide.evaluation.models import (
 )
 from deicide.git.analyzer import parse_unified_diff
 from deicide.git.models import ContextSnippet, DiffBundle, FileContext
+from deicide.intelligence.pipeline import FindingIntelligenceEngine
 from deicide.modules.code_review import CodeReviewModule
 from deicide.providers.base import LLMProvider
 
@@ -65,14 +65,14 @@ def evaluate_case(
         provider=provider,
         tracker=tracker,
     )
-    validated, _rejected, _warnings = validate_candidates(
+    intel_result = FindingIntelligenceEngine().process_candidates(
         module_id=active_module.module_id,
         candidates=candidates,
         diff_bundle=diff_bundle,
         contexts=contexts,
         repo_root=None,
     )
-    actual_findings, _deduped = deduplicate_findings(validated)
+    actual_findings = intel_result.findings
     elapsed_ms = max(0, int((time.perf_counter_ns() - start_ns) / 1_000_000))
 
     matched_expected_indices: set[int] = set()
