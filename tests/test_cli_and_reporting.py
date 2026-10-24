@@ -149,3 +149,26 @@ def test_cli_error_exit_codes(temp_git_repo: Path, tmp_path: Path, monkeypatch) 
         ],
     )
     assert res_budget.exit_code == int(ExitCode.BUDGET_EXCEEDED)
+
+
+def test_cli_review_context_options(temp_git_repo: Path) -> None:
+    calc_file = temp_git_repo / "src" / "calc.py"
+    calc_file.write_text("def run():\n    return 42\n", encoding="utf-8")
+    res = runner.invoke(
+        app,
+        [
+            "review",
+            "--provider",
+            "fake",
+            "--context",
+            "--context-tokens",
+            "1000",
+            "--context-files",
+            "5",
+            "--context-snippets",
+            "10",
+            "--repo",
+            str(temp_git_repo),
+        ],
+    )
+    assert res.exit_code == int(ExitCode.SUCCESS)

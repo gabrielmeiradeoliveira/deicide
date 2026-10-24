@@ -158,6 +158,20 @@ def review_command(
             help="Maximum token budget allocated for supplementary repository context.",
         ),
     ] = None,
+    context_files: Annotated[
+        int | None,
+        typer.Option(
+            "--context-files",
+            help="Maximum number of supplementary context files to select (default: 8).",
+        ),
+    ] = None,
+    context_snippets: Annotated[
+        int | None,
+        typer.Option(
+            "--context-snippets",
+            help="Maximum number of supplementary code snippets to select (default: 16).",
+        ),
+    ] = None,
 ) -> None:
     """Analyze local Git changes for correctness bugs."""
     try:
@@ -175,6 +189,8 @@ def review_command(
             usage_db_path=db_path,
             context_enabled=context,
             context_max_tokens=context_tokens,
+            context_max_files=context_files,
+            context_max_snippets=context_snippets,
         )
         llm_provider = create_provider(config)
         registry = build_default_registry()
