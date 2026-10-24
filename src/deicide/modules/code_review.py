@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from deicide.core.models import BudgetTracker, CandidateFinding
+from deicide.core.models import BudgetTracker, CandidateFinding, estimate_token_count
 from deicide.git.models import DiffBundle, FileContext, FileDiff
 from deicide.providers.base import LLMProvider, ProviderRequest
 from deicide.quota.store import RequestStatus
@@ -130,6 +130,15 @@ class CodeReviewModule:
             tracker.complete_attempt(reservation_id, response.usage)
 
         return self._parse_candidates(response.content, tracker)
+
+    def estimate_baseline_tokens(
+        self,
+        diff_bundle: DiffBundle,
+        contexts: dict[str, FileContext],
+    ) -> int:
+        """Estimate the baseline prompt tokens for the review prompt without supplementary context."""
+        prompt = self._build_user_prompt(diff_bundle.reviewable_files, contexts, context_result=None)
+        return estimate_token_count(SYSTEM_PROMPT) + estimate_token_count(prompt)
 
     def _build_user_prompt(
         self,

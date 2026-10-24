@@ -458,7 +458,8 @@ def test_malformed_configuration_and_untrusted_repo_env_ignored(
         encoding="utf-8",
     )
 
-    monkeypatch.chdir(temp_git_repo)
+    monkeypatch.setattr("pathlib.Path.cwd", lambda: temp_git_repo)
+    monkeypatch.setattr("os.getcwd", lambda: str(temp_git_repo))
     cfg = DeicideConfig.from_env_and_args(repo_path=temp_git_repo, environ={})
     # Must NOT have loaded the analyzed repository's .env
     assert cfg.api_key is None
@@ -667,7 +668,8 @@ def test_trusted_dotenv_loaded_automatically_with_repo_arg_and_empty_deicide_key
     monkeypatch.delenv("DEICIDE_API_KEY", raising=False)
     monkeypatch.setattr("deicide.core.config._DEICIDE_INSTALL_ROOT", trusted_root)
     monkeypatch.setattr("deicide.core.config.get_user_data_dir", lambda *_a, **_kw: tmp_path / "empty_appdata")
-    monkeypatch.chdir(temp_git_repo)
+    monkeypatch.setattr("pathlib.Path.cwd", lambda: temp_git_repo)
+    monkeypatch.setattr("os.getcwd", lambda: str(temp_git_repo))
 
     # Even when running inside temp_git_repo and passing repo_path=temp_git_repo,
     # trusted_root/.env is loaded and temp_git_repo/.env is ignored.

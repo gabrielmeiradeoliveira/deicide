@@ -98,12 +98,19 @@ class AnalysisOrchestrator:
 
         contexts = git_analyzer.retrieve_context(diff_bundle, tracker=tracker)
 
+        # Estimate baseline prompt tokens (system prompt + reviewable diff + diff context)
+        baseline_prompt_tokens = 0
+        review_module = next((m for m in selected_modules if hasattr(m, "estimate_baseline_tokens")), None)
+        if review_module is not None:
+            baseline_prompt_tokens = review_module.estimate_baseline_tokens(diff_bundle, contexts)
+
         context_outcome = prepare_review_context(
             repo_root=git_analyzer.repo_root,
             diff_bundle=diff_bundle,
             budget=self.config.budget,
             limits=self.config.context_limits,
             context_enabled=self.config.context_enabled,
+            baseline_prompt_tokens=baseline_prompt_tokens,
         )
         context_result = context_outcome.result
         context_summary = context_outcome.summary
