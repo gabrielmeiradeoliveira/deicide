@@ -50,6 +50,7 @@ def evaluate_case(
     budget: ExecutionBudget | None = None,
     use_baseline: bool = False,
     force_end_to_end: bool = False,
+    strict_severity: bool = False,
 ) -> CaseEvaluationResult:
     """Run a single EvaluationFixture and compute TP, FP, FN, latency, and token consumption."""
     active_module = module or CodeReviewModule()
@@ -133,13 +134,16 @@ def evaluate_case(
     matched_expected_indices: set[int] = set()
     tp = 0
     fp = 0
+    severity_mismatches = 0
 
     for actual in actual_findings:
         matched = False
         for idx, expected in enumerate(fixture.expected_findings):
-            if idx not in matched_expected_indices and expected.matches(actual):
+            if idx not in matched_expected_indices and expected.matches(actual, strict_severity=strict_severity):
                 matched_expected_indices.add(idx)
                 matched = True
+                if not expected.severity_matches(actual):
+                    severity_mismatches += 1
                 break
         if matched:
             tp += 1
@@ -171,6 +175,7 @@ def evaluate_case(
         false_negatives=fn,
         duplicates_reduced=deduped_count,
         legitimate_rejected=legitimate_rejected,
+        severity_mismatches=severity_mismatches,
         latency_ms=elapsed_ms,
         usage=tracker.usage,
         actual_findings=actual_findings,
@@ -184,6 +189,7 @@ def evaluate_corpus(
     budget: ExecutionBudget | None = None,
     use_baseline: bool = False,
     force_end_to_end: bool = False,
+    strict_severity: bool = False,
 ) -> EvaluationSummary:
     """Evaluate a corpus of fixtures and aggregate precision, recall, latency, and tokens."""
     case_results: list[CaseEvaluationResult] = []
@@ -192,6 +198,7 @@ def evaluate_corpus(
     total_fn = 0
     total_duplicates_reduced = 0
     total_legitimate_rejected = 0
+    total_severity_mismatches = 0
     total_latency_ms = 0
     total_usage = TokenUsage()
     positive_cases = 0
@@ -212,6 +219,7 @@ def evaluate_corpus(
             budget=budget,
             use_baseline=use_baseline,
             force_end_to_end=force_end_to_end,
+            strict_severity=strict_severity,
         )
         case_results.append(res)
         total_tp += res.true_positives
@@ -219,12 +227,13 @@ def evaluate_corpus(
         total_fn += res.false_negatives
         total_duplicates_reduced += res.duplicates_reduced
         total_legitimate_rejected += res.legitimate_rejected
+        total_severity_mismatches += res.severity_mismatches
         total_latency_ms += res.latency_ms
         total_usage = total_usage.add(res.usage)
         if not is_positive and res.false_positives > 0:
             negative_cases_with_fp += 1
 
-    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 1.0
+    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
     recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 1.0
     fp_rate = negative_cases_with_fp / negative_cases if negative_cases > 0 else 0.0
     avg_latency = total_latency_ms / len(fixtures) if fixtures else 0.0
@@ -241,6 +250,7 @@ def evaluate_corpus(
         false_positive_rate=round(fp_rate, 4),
         duplicates_reduced=total_duplicates_reduced,
         legitimate_rejected=total_legitimate_rejected,
+        severity_mismatches=total_severity_mismatches,
         evaluation_mode="end_to_end" if force_end_to_end else "post_processing",
         total_latency_ms=total_latency_ms,
         average_latency_ms=round(avg_latency, 2),

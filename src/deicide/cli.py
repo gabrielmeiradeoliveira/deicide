@@ -330,6 +330,13 @@ def evaluate_command(
             help="Run full end-to-end review pipeline with configured provider instead of post-processing candidates.",
         ),
     ] = False,
+    strict_severity: Annotated[
+        bool,
+        typer.Option(
+            "--strict-severity",
+            help="Require finding severity to strictly match ground truth severity for a match.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option(
@@ -356,6 +363,7 @@ def evaluate_command(
             provider=llm_provider,
             use_baseline=baseline,
             force_end_to_end=end_to_end,
+            strict_severity=strict_severity,
         )
 
         if config.output_format == OutputFormat.JSON:
@@ -382,6 +390,8 @@ def evaluate_command(
             typer.echo(f"False Positive Rate : {summary.false_positive_rate:.2%}")
             typer.echo(f"Duplicates Reduced  : {summary.duplicates_reduced}")
             typer.echo(f"Legitimate Rejected : {summary.legitimate_rejected}")
+            if summary.severity_mismatches > 0:
+                typer.echo(f"Severity Mismatches : {summary.severity_mismatches}")
             typer.echo(
                 f"Latency             : total={summary.total_latency_ms} ms, avg={summary.average_latency_ms:.2f} ms"
             )

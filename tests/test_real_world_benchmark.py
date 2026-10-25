@@ -139,6 +139,33 @@ def test_real_world_benchmark_end_to_end_distinction() -> None:
     # The benchmark must report this limitation honestly without claiming false AI capability.
     assert e2e_summary.evaluation_mode == "end_to_end"
     assert e2e_summary.recall < 0.20, "FakeProvider must not deceptively pass authentic semantic benchmarks."
+    assert e2e_summary.precision == 0.0, "Zero predicted findings must report 0.0 precision, not 1.0."
+
+
+def test_real_world_benchmark_severity_mismatch_not_counted_as_missed_bug() -> None:
+    """Verify that severity differences do not falsely count detected bugs as false negatives."""
+    corpus_path = Path("evaluations/fixtures/real_world_benchmark.json")
+    fixtures = load_fixtures_from_file(corpus_path)
+    provider = FakeProvider()
+
+    # 1. Standard mode (strict_severity=False): Bug detection counts TP even if severity differs
+    summary_standard = evaluate_corpus(fixtures, provider=provider, use_baseline=False, strict_severity=False)
+    assert summary_standard.true_positives == 22
+    assert summary_standard.false_negatives == 0
+    assert summary_standard.legitimate_rejected == 0
+    assert summary_standard.severity_mismatches == 1  # flask-01 had high vs expected medium
+
+    # 2. Strict severity mode (strict_severity=True): Exact severity match required
+    summary_strict = evaluate_corpus(fixtures, provider=provider, use_baseline=False, strict_severity=True)
+    assert summary_strict.true_positives == 21
+    assert summary_strict.false_negatives == 1
+    assert summary_strict.legitimate_rejected == 1
+
+    # In strict mode, Finding Intelligence outperforms baseline due to SeverityNormalizer
+    baseline_strict = evaluate_corpus(fixtures, provider=provider, use_baseline=True, strict_severity=True)
+    assert summary_strict.precision > baseline_strict.precision
+    assert summary_strict.recall > baseline_strict.recall
+    assert summary_strict.legitimate_rejected < baseline_strict.legitimate_rejected
 
 
 def test_real_world_benchmark_cli_execution() -> None:
@@ -161,3 +188,8 @@ def test_real_world_benchmark_cli_execution() -> None:
     result_e2e = runner.invoke(app, ["evaluate", "--fixtures", corpus_file, "--end-to-end"])
     assert result_e2e.exit_code == 0
     assert "DEICIDE Evaluation Summary (End-to-End fake + Finding Intelligence Engine)" in result_e2e.stdout
+
+    # 4. Strict severity flag
+    result_strict = runner.invoke(app, ["evaluate", "--fixtures", corpus_file, "--strict-severity"])
+    assert result_strict.exit_code == 0
+    assert "Counts              : TP=21, FP=2, FN=1" in result_strict.stdout

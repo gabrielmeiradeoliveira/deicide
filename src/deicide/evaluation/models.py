@@ -26,13 +26,20 @@ class ExpectedFindingSpec(BaseModel):
     category: FindingCategory | None = None
     severity: Severity | None = None
 
-    def matches(self, actual: Finding) -> bool:
+    def matches(self, actual: Finding, strict_severity: bool = False) -> bool:
+        """Check if an actual finding identifies this expected bug."""
         if actual.file_path != self.file_path:
             return False
         if not actual.line_range.overlaps_or_adjacent(self.line_range, tolerance=2):
             return False
         if self.category is not None and actual.category != self.category:
             return False
+        if not strict_severity or self.severity is None:
+            return True
+        return actual.severity == self.severity
+
+    def severity_matches(self, actual: Finding) -> bool:
+        """Check whether actual finding severity exactly matches expected severity."""
         return self.severity is None or actual.severity == self.severity
 
 
@@ -65,6 +72,7 @@ class CaseEvaluationResult(BaseModel):
     false_negatives: int = Field(default=0, ge=0)
     duplicates_reduced: int = Field(default=0, ge=0)
     legitimate_rejected: int = Field(default=0, ge=0)
+    severity_mismatches: int = Field(default=0, ge=0)
     latency_ms: int = Field(default=0, ge=0)
     usage: TokenUsage = Field(default_factory=TokenUsage)
     actual_findings: list[Finding] = Field(default_factory=list)
@@ -86,6 +94,7 @@ class EvaluationSummary(BaseModel):
     false_positive_rate: float = Field(..., ge=0.0, le=1.0)
     duplicates_reduced: int = Field(default=0, ge=0)
     legitimate_rejected: int = Field(default=0, ge=0)
+    severity_mismatches: int = Field(default=0, ge=0)
     evaluation_mode: str = Field(default="post_processing")
     total_latency_ms: int = Field(..., ge=0)
     average_latency_ms: float = Field(..., ge=0.0)
