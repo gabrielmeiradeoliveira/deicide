@@ -42,6 +42,55 @@ def _sanitize_error_message(msg: str, provider: LLMProvider | None = None) -> st
     return cleaned
 
 
+def _categorize_error(
+    exc: Exception | str,
+    provider: LLMProvider | None = None,
+) -> tuple[str, int | None, int]:
+    """Extract error category, HTTP status code (if available), and retry count."""
+    msg = str(exc)
+    category = "unknown"
+    http_status: int | None = None
+    retries = 0
+
+    # Extract retry count if mentioned in message
+    retry_match = re.search(r"after\s+(\d+)\s+retries", msg, re.IGNORECASE)
+    if retry_match:
+        retries = int(retry_match.group(1))
+
+    # Extract HTTP status from exception or error message
+    if isinstance(exc, Exception) and hasattr(exc, "code") and isinstance(exc.code, int):
+        http_status = exc.code
+    else:
+        status_match = re.search(r"\bHTTP\s+(\d{3})\b", msg, re.IGNORECASE)
+        if status_match:
+            http_status = int(status_match.group(1))
+
+    # Check for budget / quota
+    if isinstance(exc, (BudgetExceededError, QuotaExhaustedError)) or "budget" in msg.lower() or "quota" in msg.lower():
+        category = "budget_exhausted"
+    elif http_status == 429 or "rate limit" in msg.lower():
+        category = "rate_limit"
+        if http_status is None:
+            http_status = 429
+    elif isinstance(exc, TimeoutError) or "timeout" in msg.lower() or "timed out" in msg.lower():
+        category = "timeout"
+    elif http_status is not None and 500 <= http_status < 600:
+        category = "server_error"
+    elif http_status is not None and 400 <= http_status < 500:
+        category = "client_error"
+    elif (
+        "json" in msg.lower()
+        or "malformed" in msg.lower()
+        or "missing 'choices'" in msg.lower()
+        or "invalid response" in msg.lower()
+    ):
+        category = "invalid_response"
+    elif "connection" in msg.lower() or "network" in msg.lower() or "name resolution" in msg.lower():
+        category = "connection_error"
+
+    return category, http_status, retries
+
+
 def _build_fixture_contexts(
     fixture: EvaluationFixture,
 ) -> dict[str, FileContext]:
@@ -133,6 +182,9 @@ def evaluate_case(
     candidates: list[CandidateFinding] = []
     case_status = "completed"
     case_error: str | None = None
+    error_category: str | None = None
+    http_status: int | None = None
+    retries_attempted: int = 0
 
     if not force_end_to_end and fixture.candidate_findings:
         candidates = list(fixture.candidate_findings)
@@ -157,9 +209,11 @@ def evaluate_case(
         except (BudgetExceededError, QuotaExhaustedError) as exc:
             case_status = "budget_exhausted"
             case_error = _sanitize_error_message(str(exc), provider)
+            error_category, http_status, retries_attempted = _categorize_error(exc, provider)
         except Exception as exc:
             case_status = "failed"
             case_error = _sanitize_error_message(str(exc), provider)
+            error_category, http_status, retries_attempted = _categorize_error(exc, provider)
 
     if case_status != "completed":
         elapsed_ms = max(0, int((time.perf_counter_ns() - start_ns) / 1_000_000))
@@ -176,6 +230,9 @@ def evaluate_case(
             actual_findings=[],
             status=case_status,
             error=case_error,
+            error_category=error_category,
+            http_status=http_status,
+            retries_attempted=retries_attempted,
             provenance=fixture.resolved_provenance,
             change_type=fixture.resolved_change_type,
         )
@@ -355,12 +412,14 @@ def evaluate_corpus(
                 if res.false_positives > 0:
                     negative_cases_with_fp += 1
         elif res.status == "budget_exhausted":
+            total_latency_ms += res.latency_ms
             budget_exhausted = True
             budget_exhausted_cases += 1
             break
         elif res.status == "skipped":
             skipped_cases += 1
         else:
+            total_latency_ms += res.latency_ms
             api_failed_cases += 1
 
     failed_cases = api_failed_cases + budget_exhausted_cases
@@ -374,7 +433,11 @@ def evaluate_corpus(
         recall = round(total_tp / (total_tp + total_fn), 4) if (total_tp + total_fn) > 0 else 1.0
         fp_rate = round(negative_cases_with_fp / successful_negative_cases, 4) if successful_negative_cases > 0 else 0.0
 
-    avg_latency = total_latency_ms / successful_cases if successful_cases > 0 else 0.0
+    avg_latency = (
+        round(total_latency_ms / successful_cases, 2)
+        if successful_cases > 0
+        else (round(total_latency_ms / failed_cases, 2) if failed_cases > 0 else 0.0)
+    )
 
     return EvaluationSummary(
         dataset_size=len(case_results),

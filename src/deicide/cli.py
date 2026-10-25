@@ -494,6 +494,21 @@ def evaluate_command(
                 f"(prompt={summary.usage.prompt_tokens}, completion={summary.usage.completion_tokens})"
             )
             typer.echo("Local Engine Tokens : 0 (pure deterministic static analysis)")
+            if summary.failed_cases > 0:
+                typer.echo("-" * 72)
+                typer.echo("Failed Case Diagnostics:")
+                for case_res in summary.case_results:
+                    if case_res.status != "completed":
+                        typer.echo(f"  * Case ID          : {case_res.case_id}")
+                        typer.echo(f"    Status           : {case_res.status}")
+                        if case_res.error_category:
+                            typer.echo(f"    Error Category   : {case_res.error_category}")
+                        if case_res.http_status is not None:
+                            typer.echo(f"    HTTP Status      : {case_res.http_status}")
+                        typer.echo(f"    Duration         : {case_res.latency_ms} ms")
+                        typer.echo(f"    Retries          : {case_res.retries_attempted}")
+                        if case_res.error:
+                            typer.echo(f"    Error Message    : {case_res.error}")
             typer.echo("=" * 72)
         raise typer.Exit(code=int(ExitCode.SUCCESS))
     except DeicideError as exc:

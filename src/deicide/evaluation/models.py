@@ -122,6 +122,9 @@ class CaseEvaluationResult(BaseModel):
     actual_findings: list[Finding] = Field(default_factory=list)
     status: str = Field(default="completed")
     error: str | None = Field(default=None)
+    error_category: str | None = Field(default=None)
+    http_status: int | None = Field(default=None)
+    retries_attempted: int = Field(default=0, ge=0)
     provenance: str = Field(default="fully_verified")
     change_type: ChangeType | str | None = Field(default=None)
 
