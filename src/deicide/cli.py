@@ -315,6 +315,13 @@ def evaluate_command(
             help="Provider to evaluate ('fake' or 'nvidia').",
         ),
     ] = "fake",
+    baseline: Annotated[
+        bool,
+        typer.Option(
+            "--baseline",
+            help="Evaluate using pre-MVP 1.3 baseline validator instead of Finding Intelligence Engine.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option(
@@ -336,13 +343,14 @@ def evaluate_command(
             raise typer.Exit(code=int(ExitCode.CONFIGURATION_ERROR))
 
         fixtures = load_fixtures_from_file(fixtures_file)
-        summary = evaluate_corpus(fixtures, provider=llm_provider)
+        summary = evaluate_corpus(fixtures, provider=llm_provider, use_baseline=baseline)
 
         if config.output_format == OutputFormat.JSON:
             typer.echo(summary.model_dump_json(indent=2))
         else:
+            engine_label = "Baseline Validator" if baseline else "Finding Intelligence Engine"
             typer.echo("=" * 72)
-            typer.echo("DEICIDE Evaluation Summary")
+            typer.echo(f"DEICIDE Evaluation Summary ({engine_label})")
             typer.echo("=" * 72)
             typer.echo(
                 f"Dataset Size        : {summary.dataset_size} "
@@ -355,6 +363,8 @@ def evaluate_command(
             typer.echo(f"Precision           : {summary.precision:.2%}")
             typer.echo(f"Recall              : {summary.recall:.2%}")
             typer.echo(f"False Positive Rate : {summary.false_positive_rate:.2%}")
+            typer.echo(f"Duplicates Reduced  : {summary.duplicates_reduced}")
+            typer.echo(f"Legitimate Rejected : {summary.legitimate_rejected}")
             typer.echo(
                 f"Latency             : total={summary.total_latency_ms} ms, avg={summary.average_latency_ms:.2f} ms"
             )

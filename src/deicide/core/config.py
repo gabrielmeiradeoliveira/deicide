@@ -121,7 +121,11 @@ def _load_trusted_dotenv(
     merged: dict[str, str] = {}
     for candidate_dir in (get_user_data_dir(), _DEICIDE_INSTALL_ROOT):
         candidate_env = candidate_dir / ".env"
-        if candidate_env.is_file():
+        try:
+            is_file = candidate_env.is_file()
+        except OSError:
+            is_file = False
+        if is_file:
             for k, v in load_dotenv_file(candidate_env).items():
                 if v.strip() or k not in merged:
                     merged[k] = v

@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from deicide.core.models import Finding, FindingCategory, LineRange, TokenUsage
+from deicide.core.models import (
+    CandidateFinding,
+    Finding,
+    FindingCategory,
+    LineRange,
+    Severity,
+    TokenUsage,
+)
 
 
 class ExpectedFindingSpec(BaseModel):
@@ -15,13 +24,16 @@ class ExpectedFindingSpec(BaseModel):
     file_path: str
     line_range: LineRange
     category: FindingCategory | None = None
+    severity: Severity | None = None
 
     def matches(self, actual: Finding) -> bool:
         if actual.file_path != self.file_path:
             return False
         if not actual.line_range.overlaps_or_adjacent(self.line_range, tolerance=2):
             return False
-        return not (self.category is not None and actual.category != self.category)
+        if self.category is not None and actual.category != self.category:
+            return False
+        return self.severity is None or actual.severity == self.severity
 
 
 class EvaluationFixture(BaseModel):
@@ -34,6 +46,8 @@ class EvaluationFixture(BaseModel):
     diff_text: str
     file_contents: dict[str, str] = Field(default_factory=dict)
     expected_findings: list[ExpectedFindingSpec] = Field(default_factory=list)
+    candidate_findings: list[CandidateFinding] = Field(default_factory=list)
+    supplementary_snippets: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CaseEvaluationResult(BaseModel):
@@ -45,6 +59,8 @@ class CaseEvaluationResult(BaseModel):
     true_positives: int = Field(default=0, ge=0)
     false_positives: int = Field(default=0, ge=0)
     false_negatives: int = Field(default=0, ge=0)
+    duplicates_reduced: int = Field(default=0, ge=0)
+    legitimate_rejected: int = Field(default=0, ge=0)
     latency_ms: int = Field(default=0, ge=0)
     usage: TokenUsage = Field(default_factory=TokenUsage)
     actual_findings: list[Finding] = Field(default_factory=list)
@@ -64,6 +80,8 @@ class EvaluationSummary(BaseModel):
     precision: float = Field(..., ge=0.0, le=1.0)
     recall: float = Field(..., ge=0.0, le=1.0)
     false_positive_rate: float = Field(..., ge=0.0, le=1.0)
+    duplicates_reduced: int = Field(default=0, ge=0)
+    legitimate_rejected: int = Field(default=0, ge=0)
     total_latency_ms: int = Field(..., ge=0)
     average_latency_ms: float = Field(..., ge=0.0)
     usage: TokenUsage

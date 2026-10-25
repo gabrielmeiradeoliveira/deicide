@@ -42,6 +42,27 @@ def test_evaluation_cli_and_provider_validation() -> None:
     assert res_fake.exit_code == int(ExitCode.SUCCESS)
     assert "DEICIDE Evaluation Summary" in res_fake.stdout
 
+    # Evaluating with baseline flag succeeds
+    res_base = runner.invoke(app, ["evaluate", "--provider", "fake", "--baseline"])
+    assert res_base.exit_code == int(ExitCode.SUCCESS)
+    assert "Baseline Validator" in res_base.stdout
+
+    # Evaluating with extended finding intelligence corpus succeeds
+    res_extended = runner.invoke(
+        app,
+        [
+            "evaluate",
+            "--provider",
+            "fake",
+            "--fixtures",
+            "evaluations/fixtures/finding_intelligence_corpus.json",
+        ],
+    )
+    assert res_extended.exit_code == int(ExitCode.SUCCESS)
+    assert "Finding Intelligence Engine" in res_extended.stdout
+    assert "TP=9" in res_extended.stdout
+    assert "FP=0" in res_extended.stdout
+
     # Evaluating with unsupported gemini fails
     res_gemini = runner.invoke(app, ["evaluate", "--provider", "gemini"])
     assert res_gemini.exit_code == int(ExitCode.CONFIGURATION_ERROR)

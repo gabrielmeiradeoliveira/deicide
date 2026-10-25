@@ -1,0 +1,353 @@
+[
+  {
+    "case_id": "case_01_correct_strong_evidence",
+    "description": "Correct finding with strong verbatim code evidence on added line.",
+    "diff_text": "diff --git a/src/metrics.py b/src/metrics.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/metrics.py\n@@ -0,0 +1,3 @@\n+def compute_mean(scores: list[float]) -> float:\n+    return sum(scores) / len(scores)\n+\n",
+    "file_contents": {
+      "src/metrics.py": "def compute_mean(scores: list[float]) -> float:\n    return sum(scores) / len(scores)\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/metrics.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "Unchecked ZeroDivisionError when scores is empty",
+        "description": "Dividing sum(scores) by len(scores) raises ZeroDivisionError when scores is empty.",
+        "evidence": "return sum(scores) / len(scores)"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/metrics.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 2
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ]
+  },
+  {
+    "case_id": "case_02_hallucinated_symbols",
+    "description": "Hallucinated finding referencing invented symbol not in file must be rejected.",
+    "diff_text": "diff --git a/src/parser.py b/src/parser.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/parser.py\n@@ -0,0 +1,3 @@\n+def parse_config(raw: str) -> str:\n+    return raw.strip()\n+\n",
+    "file_contents": {
+      "src/parser.py": "def parse_config(raw: str) -> str:\n    return raw.strip()\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/parser.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "SQL injection via raw query",
+        "description": "Calls execute_sql_query with unescaped raw string.",
+        "evidence": "execute_sql_query(raw)"
+      }
+    ],
+    "expected_findings": []
+  },
+  {
+    "case_id": "case_03_duplicate_different_phrasing",
+    "description": "Duplicate findings describing the same bug with different categories and titles should deduplicate.",
+    "diff_text": "diff --git a/src/stats.py b/src/stats.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/stats.py\n@@ -0,0 +1,5 @@\n+def compute_ratio(total: float, items: list[int]) -> float:\n+    base = total * 10\n+    ratio = base / len(items)\n+    return ratio\n+\n",
+    "file_contents": {
+      "src/stats.py": "def compute_ratio(total: float, items: list[int]) -> float:\n    base = total * 10\n    ratio = base / len(items)\n    return ratio\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/stats.py",
+        "start_line": 3,
+        "end_line": 3,
+        "title": "Potential ZeroDivisionError when items is empty",
+        "description": "Dividing base by len(items) raises ZeroDivisionError when items is an empty list.",
+        "evidence": "ratio = base / len(items)"
+      },
+      {
+        "category": "correctness",
+        "severity": "medium",
+        "confidence": "high",
+        "file_path": "src/stats.py",
+        "start_line": 2,
+        "end_line": 3,
+        "title": "Unchecked collection size divisor in ratio computation",
+        "description": "When items collection is empty, division by zero occurs.",
+        "evidence": "3: ratio = base / len(items)",
+        "suggested_remediation": "Check if not items: return 0.0"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/stats.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 3
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ]
+  },
+  {
+    "case_id": "case_04_distinct_bugs_adjacent_lines",
+    "description": "Two distinct bugs on adjacent lines with the same category must NOT be merged.",
+    "diff_text": "diff --git a/src/calc.py b/src/calc.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/calc.py\n@@ -0,0 +1,5 @@\n+def compute_fee(amount: float, discount: float) -> float:\n+    bonus = amount / 0\n+    total = amount - discount\n+    return total + bonus\n+\n",
+    "file_contents": {
+      "src/calc.py": "def compute_fee(amount: float, discount: float) -> float:\n    bonus = amount / 0\n    total = amount - discount\n    return total + bonus\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "critical",
+        "confidence": "high",
+        "file_path": "src/calc.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "Division by literal zero in bonus",
+        "description": "Expression amount / 0 unconditionally raises ZeroDivisionError at runtime.",
+        "evidence": "bonus = amount / 0"
+      },
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/calc.py",
+        "start_line": 3,
+        "end_line": 3,
+        "title": "Incorrect subtraction in fee total",
+        "description": "Subtracting discount from amount violates the addition specification.",
+        "evidence": "total = amount - discount"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/calc.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 2
+        },
+        "category": "correctness",
+        "severity": "critical"
+      },
+      {
+        "file_path": "src/calc.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 3
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ]
+  },
+  {
+    "case_id": "case_05_deletion_only_diff",
+    "description": "Deletion of empty-collection guard creates a regression that must be detected.",
+    "diff_text": "diff --git a/src/average.py b/src/average.py\n--- a/src/average.py\n+++ b/src/average.py\n@@ -1,4 +1,2 @@\n def calculate_average(values):\n-    if not values:\n-        return 0\n     return sum(values) / len(values)\n",
+    "file_contents": {
+      "src/average.py": "def calculate_average(values):\n    return sum(values) / len(values)\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/average.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "Potential ZeroDivisionError when 'values' is empty",
+        "description": "Removing the empty check causes sum(values) / len(values) to crash when values is empty.",
+        "evidence": "return sum(values) / len(values)"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/average.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 2
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ]
+  },
+  {
+    "case_id": "case_06_incorrect_severity_classification",
+    "description": "Inflated severities on error handling and low-confidence findings should be normalized.",
+    "diff_text": "diff --git a/src/handler.py b/src/handler.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/handler.py\n@@ -0,0 +1,6 @@\n+def safe_parse(payload: str) -> int:\n+    try:\n+        return int(payload)\n+    except Exception:\n+        pass\n+    return 0\n",
+    "file_contents": {
+      "src/handler.py": "def safe_parse(payload: str) -> int:\n    try:\n        return int(payload)\n    except Exception:\n        pass\n    return 0\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "error_handling",
+        "severity": "critical",
+        "confidence": "high",
+        "file_path": "src/handler.py",
+        "start_line": 4,
+        "end_line": 5,
+        "title": "Silent exception swallowing masks errors",
+        "description": "Catching Exception and passing silently hides unexpected errors.",
+        "evidence": "except Exception:\n        pass"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/handler.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 5
+        },
+        "category": "error_handling",
+        "severity": "high"
+      }
+    ]
+  },
+  {
+    "case_id": "case_07_supplementary_context_leakage",
+    "description": "Findings targeting supplementary context files or citing supplementary code must be rejected.",
+    "diff_text": "diff --git a/src/worker.py b/src/worker.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/worker.py\n@@ -0,0 +1,3 @@\n+def execute_task(task_id: int) -> int:\n+    return task_id * 2\n+\n",
+    "file_contents": {
+      "src/worker.py": "def execute_task(task_id: int) -> int:\n    return task_id * 2\n"
+    },
+    "supplementary_snippets": [
+      {
+        "snippet_id": "supp-pipeline",
+        "file_path": "src/pipeline.py",
+        "start_line": 1,
+        "end_line": 4,
+        "content": "def run_pipeline():\n    execute_task(0)\n",
+        "relationship": "direct_caller"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/pipeline.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "Pipeline caller invokes task with zero",
+        "description": "Finding reported directly on unchanged caller file.",
+        "evidence": "execute_task(0)"
+      },
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/worker.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "Misattributed evidence from caller snippet",
+        "description": "Cites pipeline caller code while reporting worker file.",
+        "evidence": "def run_pipeline():"
+      }
+    ],
+    "expected_findings": []
+  },
+  {
+    "case_id": "case_08_ambiguous_evidence_not_rejected",
+    "description": "Ambiguous/imprecise evidence on a real bug should be downgraded rather than rejected.",
+    "diff_text": "diff --git a/src/loader.py b/src/loader.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/loader.py\n@@ -0,0 +1,4 @@\n+def average_records(records: list[dict]) -> float:\n+    total = sum(r['val'] for r in records)\n+    return total / len(records)\n+\n",
+    "file_contents": {
+      "src/loader.py": "def average_records(records: list[dict]) -> float:\n    total = sum(r['val'] for r in records)\n    return total / len(records)\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "critical",
+        "confidence": "high",
+        "file_path": "src/loader.py",
+        "start_line": 3,
+        "end_line": 3,
+        "title": "ZeroDivisionError when records is empty",
+        "description": "Empty records list causes division by zero. Cites line with extra simulated comment.",
+        "evidence": "return total / len(records)\n# unverified comment"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/loader.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 3
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ]
+  },
+  {
+    "case_id": "case_09_same_line_distinct_bugs",
+    "description": "Two distinct bugs on the exact same line must both be preserved.",
+    "diff_text": "diff --git a/src/inline.py b/src/inline.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/inline.py\n@@ -0,0 +1,2 @@\n+def compute(values: list[int], cache=[]) -> float: return sum(values) / 0\n+\n",
+    "file_contents": {
+      "src/inline.py": "def compute(values: list[int], cache=[]) -> float: return sum(values) / 0\n"
+    },
+    "candidate_findings": [
+      {
+        "category": "state_mutation",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/inline.py",
+        "start_line": 1,
+        "end_line": 1,
+        "title": "Mutable default argument in function signature",
+        "description": "Default list cache=[] persists state across invocations.",
+        "evidence": "def compute(values: list[int], cache=[]) -> float: return sum(values) / 0"
+      },
+      {
+        "category": "correctness",
+        "severity": "critical",
+        "confidence": "high",
+        "file_path": "src/inline.py",
+        "start_line": 1,
+        "end_line": 1,
+        "title": "Division by literal zero",
+        "description": "Dividing sum(values) by 0 unconditionally raises ZeroDivisionError.",
+        "evidence": "return sum(values) / 0"
+      }
+    ],
+    "expected_findings": [
+      {
+        "file_path": "src/inline.py",
+        "line_range": {
+          "start_line": 1,
+          "end_line": 1
+        },
+        "category": "state_mutation",
+        "severity": "high"
+      },
+      {
+        "file_path": "src/inline.py",
+        "line_range": {
+          "start_line": 1,
+          "end_line": 1
+        },
+        "category": "correctness",
+        "severity": "critical"
+      }
+    ]
+  },
+  {
+    "case_id": "case_10_guarded_clean_code_negative",
+    "description": "Properly guarded calculation must produce zero findings.",
+    "diff_text": "diff --git a/src/safe.py b/src/safe.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/safe.py\n@@ -0,0 +1,4 @@\n+def safe_average(values: list[float]) -> float:\n+    if not values:\n+        return 0.0\n+    return sum(values) / len(values)\n",
+    "file_contents": {
+      "src/safe.py": "def safe_average(values: list[float]) -> float:\n    if not values:\n        return 0.0\n    return sum(values) / len(values)\n"
+    },
+    "candidate_findings": [],
+    "expected_findings": []
+  }
+]

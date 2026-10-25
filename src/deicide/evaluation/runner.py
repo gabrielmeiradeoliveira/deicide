@@ -6,8 +6,14 @@ import json
 import time
 from pathlib import Path
 
-from deicide.core.models import BudgetTracker, ExecutionBudget, TokenUsage
+from deicide.context.context_models import (
+    ContextRelationshipCategory,
+    ContextSelectionResult,
+    SelectedSnippet,
+)
+from deicide.core.models import BudgetTracker, ExecutionBudget, LineRange, TokenUsage
 from deicide.core.registry import AnalysisModule
+from deicide.evaluation.baseline import baseline_process_candidates
 from deicide.evaluation.models import (
     CaseEvaluationResult,
     EvaluationFixture,
@@ -42,6 +48,7 @@ def evaluate_case(
     provider: LLMProvider,
     module: AnalysisModule | None = None,
     budget: ExecutionBudget | None = None,
+    use_baseline: bool = False,
 ) -> CaseEvaluationResult:
     """Run a single EvaluationFixture and compute TP, FP, FN, latency, and token consumption."""
     active_module = module or CodeReviewModule()
@@ -59,20 +66,67 @@ def evaluate_case(
     )
     contexts = _build_fixture_contexts(fixture)
 
-    candidates = active_module.analyze(
-        diff_bundle=diff_bundle,
-        contexts=contexts,
-        provider=provider,
-        tracker=tracker,
-    )
-    intel_result = FindingIntelligenceEngine().process_candidates(
-        module_id=active_module.module_id,
-        candidates=candidates,
-        diff_bundle=diff_bundle,
-        contexts=contexts,
-        repo_root=None,
-    )
-    actual_findings = intel_result.findings
+    context_result: ContextSelectionResult | None = None
+    if fixture.supplementary_snippets:
+        selected_snippets = []
+        serialized_sections = []
+        for snip in fixture.supplementary_snippets:
+            snippet_obj = SelectedSnippet(
+                snippet_id=str(snip.get("snippet_id", "supp-1")),
+                file_path=str(snip.get("file_path", "unknown.py")),
+                start_line=int(snip.get("start_line", 1)),
+                end_line=int(snip.get("end_line", 1)),
+                content=str(snip.get("content", "")),
+                relationship=ContextRelationshipCategory(snip.get("relationship", "direct_caller")),
+            )
+            selected_snippets.append(snippet_obj)
+            serialized_sections.append(f"=== CONTEXT SNIPPET: {snippet_obj.file_path} ===\n{snippet_obj.content}")
+
+        context_result = ContextSelectionResult(
+            selected_snippets=selected_snippets,
+            serialized_text="\n\n".join(serialized_sections),
+            selected_snippets_count=len(selected_snippets),
+        )
+
+    if fixture.candidate_findings:
+        candidates = list(fixture.candidate_findings)
+    else:
+        try:
+            candidates = active_module.analyze(
+                diff_bundle=diff_bundle,
+                contexts=contexts,
+                provider=provider,
+                tracker=tracker,
+                context_result=context_result,
+            )
+        except TypeError:
+            candidates = active_module.analyze(
+                diff_bundle=diff_bundle,
+                contexts=contexts,
+                provider=provider,
+                tracker=tracker,
+            )
+
+    if use_baseline:
+        actual_findings, rejected_count, deduped_count, _warnings = baseline_process_candidates(
+            module_id=active_module.module_id,
+            candidates=candidates,
+            diff_bundle=diff_bundle,
+            contexts=contexts,
+            repo_root=None,
+        )
+    else:
+        intel_result = FindingIntelligenceEngine().process_candidates(
+            module_id=active_module.module_id,
+            candidates=candidates,
+            diff_bundle=diff_bundle,
+            contexts=contexts,
+            repo_root=None,
+            context_result=context_result,
+        )
+        actual_findings = intel_result.findings
+        deduped_count = intel_result.deduplicated_count
+
     elapsed_ms = max(0, int((time.perf_counter_ns() - start_ns) / 1_000_000))
 
     matched_expected_indices: set[int] = set()
@@ -93,11 +147,29 @@ def evaluate_case(
 
     fn = len(fixture.expected_findings) - len(matched_expected_indices)
 
+    # Calculate legitimate findings incorrectly rejected (ground truth in candidates but missing from actual)
+    legitimate_rejected = 0
+    for idx, expected in enumerate(fixture.expected_findings):
+        if idx not in matched_expected_indices:
+            # Check if there was a candidate in candidates matching expected
+            candidate_present = any(
+                c.file_path == expected.file_path
+                and LineRange(start_line=c.start_line, end_line=c.end_line or c.start_line).overlaps_or_adjacent(
+                    expected.line_range, tolerance=2
+                )
+                and (expected.category is None or c.category == expected.category)
+                for c in candidates
+            )
+            if candidate_present:
+                legitimate_rejected += 1
+
     return CaseEvaluationResult(
         case_id=fixture.case_id,
         true_positives=tp,
         false_positives=fp,
         false_negatives=fn,
+        duplicates_reduced=deduped_count,
+        legitimate_rejected=legitimate_rejected,
         latency_ms=elapsed_ms,
         usage=tracker.usage,
         actual_findings=actual_findings,
@@ -109,12 +181,15 @@ def evaluate_corpus(
     provider: LLMProvider,
     module: AnalysisModule | None = None,
     budget: ExecutionBudget | None = None,
+    use_baseline: bool = False,
 ) -> EvaluationSummary:
     """Evaluate a corpus of fixtures and aggregate precision, recall, latency, and tokens."""
     case_results: list[CaseEvaluationResult] = []
     total_tp = 0
     total_fp = 0
     total_fn = 0
+    total_duplicates_reduced = 0
+    total_legitimate_rejected = 0
     total_latency_ms = 0
     total_usage = TokenUsage()
     positive_cases = 0
@@ -128,11 +203,19 @@ def evaluate_corpus(
         else:
             negative_cases += 1
 
-        res = evaluate_case(fixture, provider=provider, module=module, budget=budget)
+        res = evaluate_case(
+            fixture,
+            provider=provider,
+            module=module,
+            budget=budget,
+            use_baseline=use_baseline,
+        )
         case_results.append(res)
         total_tp += res.true_positives
         total_fp += res.false_positives
         total_fn += res.false_negatives
+        total_duplicates_reduced += res.duplicates_reduced
+        total_legitimate_rejected += res.legitimate_rejected
         total_latency_ms += res.latency_ms
         total_usage = total_usage.add(res.usage)
         if not is_positive and res.false_positives > 0:
@@ -153,6 +236,8 @@ def evaluate_corpus(
         precision=round(precision, 4),
         recall=round(recall, 4),
         false_positive_rate=round(fp_rate, 4),
+        duplicates_reduced=total_duplicates_reduced,
+        legitimate_rejected=total_legitimate_rejected,
         total_latency_ms=total_latency_ms,
         average_latency_ms=round(avg_latency, 2),
         usage=total_usage,
