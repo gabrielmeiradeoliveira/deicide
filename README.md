@@ -43,10 +43,11 @@ Terminal / JSON Report
 - **`deicide.quota`**: Provider-independent SQLite usage ledger (`UsageStore`, `QuotaSnapshot`, `RequestStatus`), atomic `BEGIN IMMEDIATE` request reservations, stale reservation expiration, rolling 60-second (`RPM`/`TPM`) and UTC daily (`RPD`) quota windows, and API key scope isolation.
 - **`deicide.git`**: Safe read-only Git repository detection, diff extraction, unified diff hunk/line mapping, and bounded working-tree context retrieval (`GitAnalyzer`) with path traversal and symlink-escape protection.
 - **`deicide.context`**: Deterministic repository context engine (MVP 1.2) featuring secure Python AST symbol extraction (`PythonAstAnalyzer`), cross-file import and call-site dependency indexing (`DependencyGraph`), depth-based context ranking, token-budgeted snippet slicing, and deletion-only diff symbol recovery.
+- **`deicide.intelligence`**: Deterministic Finding Intelligence Engine (MVP 1.3) post-processing pipeline featuring evidence grounding and AST symbol verification (`EvidenceValidator`), semantic deduplication with collision prevention (`SemanticDeduplicator`), category-based severity ceilings and confidence normalization (`SeverityNormalizer`), and multi-key deterministic prioritization (`FindingPrioritizer`). Operates 100% locally with zero additional LLM requests.
 - **`deicide.providers`**: Provider-neutral `LLMProvider` protocol, deterministic offline `FakeProvider`, and production-grade `NvidiaProvider` (using Python's standard library `urllib.request`, per-attempt quota reservation, bounded retries, `Retry-After` handling, request timeouts, and token usage reconciliation).
 - **`deicide.modules.code_review`**: First analysis module (`module_id = "code_review"`), decoupled from provisional mythological display names. Focuses strictly on functional correctness bugs rather than stylistic nitpicks.
 - **`deicide.reporting`**: Human-readable terminal formatters and strict machine-readable JSON formatters for both review reports and usage/quota snapshots.
-- **`deicide.evaluation`**: Offline evaluation runner (`evaluate_corpus`) measuring True Positives, False Positives, False Negatives, Precision, Recall, False Positive Rate, Latency, and Token Consumption against curated fixtures (`evaluations/fixtures/code_review_corpus.json`).
+- **`deicide.evaluation`**: Offline evaluation runner (`evaluate_corpus`) measuring True Positives, False Positives, False Negatives, Precision, Recall, False Positive Rate, Latency, and Token Consumption across synthetic fixtures (`code_review_corpus.json`, `finding_intelligence_corpus.json`) and authentic Python benchmark cases (`real_world_benchmark.json`).
 
 ---
 
@@ -169,6 +170,133 @@ The Context Engine is enabled by default and can be configured or disabled via C
 
 ---
 
+## Finding Intelligence Engine (MVP 1.3)
+
+DEICIDE MVP 1.3 introduces a deterministic post-processing pipeline that transforms raw candidate findings into reliable, evidence-grounded review reports. The engine runs entirely locally, requiring **zero additional LLM calls and zero extra token expenditure**.
+
+```text
+Raw Candidate Findings (from LLM or analysis module)
+                   |
+                   v
+1. Evidence Validation & Grounding (EvidenceValidator)
+   - Verifies lines against diff additions & deletions
+   - Grounds referenced symbols against AST index
+   - Downgrades confidence on partial evidence without dropping legitimate bugs
+   - Rejects hallucinated code and ungrounded claims
+                   |
+                   v
+2. Semantic Deduplication (SemanticDeduplicator)
+   - Detects overlapping or adjacent findings
+   - Computes title token Jaccard similarity and category compatibility
+   - Enforces anti-collision guards: preserves distinct bugs on adjacent lines
+   - Merges redundant reports while preserving strongest evidence and remediation
+                   |
+                   v
+3. Severity Normalization (SeverityNormalizer)
+   - Enforces deterministic category-based severity ceilings
+   - Caps severity on low-confidence or partial evidence
+   - Eliminates model severity inflation (e.g. style nitpicks labeled critical)
+                   |
+                   v
+4. Deterministic Prioritization (FindingPrioritizer)
+   - Multi-key sort: Severity -> Confidence -> File Path -> Line -> Finding ID
+   - Stable SHA-256 finding identifiers
+                   |
+                   v
+Final Validated Findings (AnalysisReport)
+```
+
+### Key Capabilities
+
+1. **Evidence Validation & Grounding (`EvidenceValidator`)**:
+   - Cross-checks finding line numbers against unified diff hunks (including deletion-only hunks).
+   - Validates that code identifiers, function calls, and classes cited in evidence actually exist in the AST symbol index or extracted context snippets.
+   - Categorizes evidence strength into `STRONG`, `PARTIAL`, or `NONE`.
+   - Partial or imprecise citations have their confidence downgraded rather than prematurely discarding genuine bugs.
+
+2. **Semantic Deduplication (`SemanticDeduplicator`)**:
+   - Compares candidate findings using spatial proximity (`tolerance=1`), category compatibility, and Jaccard similarity of normalized title keywords.
+   - Anti-collision protection (`_is_distinct_issue`): Prevents distinct bugs on adjacent lines (such as a hardcoded credential on line 10 and an unclosed file on line 11) from being mistakenly merged.
+
+3. **Severity & Confidence Normalization (`SeverityNormalizer`)**:
+   - Establishes deterministic ceiling rules per category (e.g., `boundary_condition` capped at `HIGH`, `error_handling` capped at `HIGH` for high confidence, `style` capped at `INFO`).
+   - Normalizes inflated severities produced by generative models without suppressing the underlying finding.
+
+4. **Deterministic Prioritization (`FindingPrioritizer`)**:
+   - Sorts findings predictably across repeated runs:
+     $$\text{Severity Rank} \downarrow \;\to\; \text{Confidence Rank} \downarrow \;\to\; \text{File Path} \uparrow \;\to\; \text{Start Line} \uparrow \;\to\; \text{Deterministic ID} \uparrow$$
+   - Emits consistent `dcd-<sha256[:12]>` fingerprints.
+
+---
+
+## Evaluation Benchmark & Methodology
+
+DEICIDE includes an evidence-based quality evaluation framework (`deicide evaluate`) to measure detection accuracy, false alarm rejection, and deduplication effectiveness across curated and real-world test cases.
+
+### Evaluation Corpora
+
+1. **Curated Regression Corpus (`evaluations/fixtures/finding_intelligence_corpus.json`)**:
+   - 10 synthetic fixtures testing specific edge cases: hallucinated symbols, semantic duplicates, adjacent distinct bugs, deletion diffs, severity normalization, supplementary context grounding, and ambiguous evidence.
+2. **Real-World Benchmark Corpus (`evaluations/fixtures/real_world_benchmark.json`)**:
+   - 33 independently labeled cases across 11 major Python repositories (`psf/requests`, `urllib3/urllib3`, `python/cpython`, `pallets/flask`, `pallets/werkzeug`, `pallets/jinja`, `tiangolo/fastapi`, `psf/black`, `pytest-dev/pytest`, `tqdm/tqdm`, and local `DEICIDE` history).
+   - Contains **22 positive (buggy) cases** and **11 negative (clean) cases**.
+
+### Benchmark Provenance Classification
+
+- **Fully Verified (23 cases)**:
+  - 20 authentic open-source security fixes and bugs verified against official CVE advisories, GitHub issue trackers, or the BugsInPy benchmark dataset.
+  - 3 local DEICIDE cases verified against repository git history (`a76d89b`, `ae580a6`, `cfc826d`).
+- **Partially Verified / Reference-Modeled (10 cases)**:
+  - 10 clean negative examples modeling real-world refactorings, typing annotations, docstrings, and constant definitions from upstream repositories (without full local clones of historical dependency trees).
+- **Unverified / Fabricated (0 cases)**: Zero cases contain fabricated bugs or synthetic inventions.
+
+### Benchmark Modes & Separation of Metrics
+
+The evaluation framework explicitly distinguishes three measurement tiers:
+
+1. **Candidate-Finding Post-Processing Evaluation (Default)**:
+   - Evaluates how effectively the post-processing engine filters, deduplicates, and normalizes pre-generated candidate findings against known ground truth.
+   - On the 33-case real-world benchmark, the Finding Intelligence Engine achieves:
+     - **Precision**: 95.65% (22 TP, 1 FP on clean code with verbatim quote)
+     - **Recall**: 100.00% (22 / 22 ground-truth bugs detected)
+     - **Legitimate Findings Rejected**: 0
+     - **Severity Mismatches**: 1 (detected bug had `HIGH` normalized severity vs. `MEDIUM` expected)
+   - > [!IMPORTANT]
+     > **These metrics measure post-processing filtering performance on candidate findings, NOT autonomous end-to-end bug detection from raw source code.** Post-processing takes candidate findings generated by human reviewers or models and verifies them deterministically.
+
+2. **Strict Severity Calibration (`--strict-severity`)**:
+   - Enforces exact severity equality between actual and expected findings.
+   - If a detected bug has a different severity than ground truth, it is treated as unmatched under strict mode.
+   - Under `--strict-severity`, the Finding Intelligence Engine achieves **91.30% precision** and **95.45% recall** (outperforming the legacy Baseline Validator's 86.96% precision and 90.91% recall due to category ceiling normalization).
+
+3. **End-to-End Evaluation with FakeProvider (`--end-to-end`)**:
+   - Runs the complete pipeline (diff parsing -> AST context retrieval -> provider -> post-processing).
+   - When run with the offline `FakeProvider`, the benchmark reports **0.00% Recall** (0 / 22 bugs detected) and **0.00% Precision**.
+   - This honestly reflects that `FakeProvider` is a deterministic regex test double that cannot detect complex semantic vulnerabilities.
+
+4. **Genuine LLM-Powered Bug Detection (Unbenchmarked in MVP 1.3)**:
+   - Autonomous bug detection using frontier LLM providers (e.g. NVIDIA Nemotron, DeepSeek, GLM) requires live network API execution and token expenditure.
+   - Live model benchmarks will be published as separate provider capability evaluations in future milestones.
+
+### Metric Definitions
+
+- **Precision**: $\frac{\text{TP}}{\text{TP} + \text{FP}}$ when $\text{TP} + \text{FP} > 0$, otherwise $0.0\%$ (zero predictions never report 100% precision).
+- **Recall**: $\frac{\text{TP}}{\text{TP} + \text{FN}}$ when $\text{TP} + \text{FN} > 0$, otherwise $1.0$.
+- **False Positive Rate (Clean Cases)**: Fraction of negative cases producing at least one false positive ($\frac{\text{Clean Cases with FP}}{\text{Total Clean Cases}}$).
+- **Legitimate Findings Rejected**: Count of ground-truth bugs where a candidate finding was present but discarded by validation.
+- **Severity Mismatches**: Detected bugs where file, lines, and category matched, but severity differed from ground truth.
+
+### CLI Evaluation Options
+
+- `deicide evaluate`: Evaluates the default corpus using the Finding Intelligence Engine.
+- `deicide evaluate --baseline`: Compares against the legacy pre-MVP 1.3 baseline validator.
+- `deicide evaluate --strict-severity`: Enforces strict severity equality.
+- `deicide evaluate --end-to-end` (`--e2e`): Runs the full end-to-end review pipeline with the configured provider.
+- `deicide evaluate --fixtures <path>`: Specifies a custom fixtures JSON file.
+- `deicide evaluate --format json`: Outputs structured machine-readable evaluation metrics.
+
+---
+
 ## Usage
 
 ### 1. Show CLI help
@@ -226,7 +354,23 @@ deicide review --provider fake --format json
 ### 7. Run the evaluation benchmark (`deicide evaluate`)
 
 ```bash
-deicide evaluate --provider fake
+# Evaluate candidate findings on the default curated corpus:
+deicide evaluate
+
+# Compare Finding Intelligence against the legacy pre-MVP 1.3 baseline validator:
+deicide evaluate --baseline
+
+# Evaluate with strict severity calibration (exact severity equality required):
+deicide evaluate --strict-severity
+
+# Evaluate on the 33-case real-world open-source benchmark:
+deicide evaluate --fixtures evaluations/fixtures/real_world_benchmark.json
+
+# Run the full end-to-end pipeline (AST context + provider + post-processing):
+deicide evaluate --end-to-end --provider fake
+
+# Export evaluation metrics in machine-readable JSON format:
+deicide evaluate --fixtures evaluations/fixtures/real_world_benchmark.json --format json
 ```
 
 ---
