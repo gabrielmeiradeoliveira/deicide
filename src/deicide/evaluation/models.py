@@ -59,6 +59,18 @@ class EvaluationFixture(BaseModel):
     commit_id: str | None = None
     is_clean: bool = False
     fix_reference: str | None = None
+    provenance: str | None = None
+
+    @property
+    def resolved_provenance(self) -> str:
+        """Categorize provenance into fully_verified, reference_modeled, or unverified."""
+        if self.provenance:
+            return self.provenance
+        if self.commit_id in {"a76d89b", "ae580a6", "cfc826d"}:
+            return "fully_verified"
+        if self.is_clean:
+            return "reference_modeled"
+        return "fully_verified"
 
 
 class CaseEvaluationResult(BaseModel):
@@ -76,6 +88,9 @@ class CaseEvaluationResult(BaseModel):
     latency_ms: int = Field(default=0, ge=0)
     usage: TokenUsage = Field(default_factory=TokenUsage)
     actual_findings: list[Finding] = Field(default_factory=list)
+    status: str = Field(default="completed")
+    error: str | None = Field(default=None)
+    provenance: str = Field(default="fully_verified")
 
 
 class EvaluationSummary(BaseModel):
@@ -99,4 +114,10 @@ class EvaluationSummary(BaseModel):
     total_latency_ms: int = Field(..., ge=0)
     average_latency_ms: float = Field(..., ge=0.0)
     usage: TokenUsage
+    verified_cases: int = Field(default=0, ge=0)
+    reference_modeled_cases: int = Field(default=0, ge=0)
+    unverified_cases: int = Field(default=0, ge=0)
+    failed_cases: int = Field(default=0, ge=0)
+    budget_exhausted: bool = Field(default=False)
+    max_cases_applied: int | None = Field(default=None)
     case_results: list[CaseEvaluationResult] = Field(default_factory=list)

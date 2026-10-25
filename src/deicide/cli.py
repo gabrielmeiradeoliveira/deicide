@@ -315,6 +315,21 @@ def evaluate_command(
             help="Provider to evaluate ('fake' or 'nvidia').",
         ),
     ] = "fake",
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model identifier override for provider evaluation.",
+        ),
+    ] = None,
+    allow_external: Annotated[
+        bool,
+        typer.Option(
+            "--allow-external/--no-allow-external",
+            help="Explicitly authorize sending evaluation fixtures to an external AI provider.",
+        ),
+    ] = False,
     baseline: Annotated[
         bool,
         typer.Option(
@@ -337,6 +352,41 @@ def evaluate_command(
             help="Require finding severity to strictly match ground truth severity for a match.",
         ),
     ] = False,
+    max_cases: Annotated[
+        int | None,
+        typer.Option(
+            "--max-cases",
+            help="Maximum number of evaluation cases to execute from the fixture dataset.",
+        ),
+    ] = None,
+    max_requests: Annotated[
+        int | None,
+        typer.Option(
+            "--max-requests",
+            help="Maximum total API requests allowed across the evaluation run.",
+        ),
+    ] = None,
+    max_tokens: Annotated[
+        int | None,
+        typer.Option(
+            "--max-tokens",
+            help="Maximum total tokens allowed across the evaluation run.",
+        ),
+    ] = None,
+    timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--timeout",
+            help="Per-request timeout in seconds for provider evaluation.",
+        ),
+    ] = None,
+    max_retries: Annotated[
+        int | None,
+        typer.Option(
+            "--max-retries",
+            help="Maximum automatic retries on transient rate-limits or server errors.",
+        ),
+    ] = None,
     output_format: Annotated[
         str,
         typer.Option(
@@ -350,20 +400,36 @@ def evaluate_command(
     try:
         config = DeicideConfig.from_env_and_args(
             provider=provider,
+            model=model,
+            allow_external_code=allow_external,
+            max_tokens=max_tokens,
+            max_requests=max_requests,
+            max_retries=max_retries,
+            timeout_seconds=timeout,
             output_format=output_format,
         )
+        if config.provider != "fake":
+            config.validate_provider_credentials()
+
         llm_provider = create_provider(config)
         if not fixtures_file.exists():
             typer.echo(f"Error: Evaluation fixtures file not found: '{fixtures_file}'", err=True)
             raise typer.Exit(code=int(ExitCode.CONFIGURATION_ERROR))
 
         fixtures = load_fixtures_from_file(fixtures_file)
+        eval_budget = (
+            config.budget
+            if (max_requests is not None or max_tokens is not None or timeout is not None or max_retries is not None)
+            else None
+        )
         summary = evaluate_corpus(
             fixtures,
             provider=llm_provider,
+            budget=eval_budget,
             use_baseline=baseline,
             force_end_to_end=end_to_end,
             strict_severity=strict_severity,
+            max_cases=max_cases,
         )
 
         if config.output_format == OutputFormat.JSON:
@@ -382,6 +448,11 @@ def evaluate_command(
                 f"(positive={summary.positive_cases}, negative={summary.negative_cases})"
             )
             typer.echo(
+                f"Provenance          : verified={summary.verified_cases}, "
+                f"reference_modeled={summary.reference_modeled_cases}, "
+                f"unverified={summary.unverified_cases}"
+            )
+            typer.echo(
                 f"Counts              : TP={summary.true_positives}, "
                 f"FP={summary.false_positives}, FN={summary.false_negatives}"
             )
@@ -392,10 +463,18 @@ def evaluate_command(
             typer.echo(f"Legitimate Rejected : {summary.legitimate_rejected}")
             if summary.severity_mismatches > 0:
                 typer.echo(f"Severity Mismatches : {summary.severity_mismatches}")
+            if summary.failed_cases > 0:
+                typer.echo(f"Failed Cases (API)  : {summary.failed_cases}")
+            if summary.budget_exhausted:
+                typer.echo("Budget Status       : STOPPED (Budget / Quota Exhausted)")
             typer.echo(
                 f"Latency             : total={summary.total_latency_ms} ms, avg={summary.average_latency_ms:.2f} ms"
             )
-            typer.echo(f"Total Tokens        : {summary.usage.total_tokens}")
+            typer.echo(
+                f"Provider Tokens     : {summary.usage.total_tokens} "
+                f"(prompt={summary.usage.prompt_tokens}, completion={summary.usage.completion_tokens})"
+            )
+            typer.echo("Local Engine Tokens : 0 (pure deterministic static analysis)")
             typer.echo("=" * 72)
         raise typer.Exit(code=int(ExitCode.SUCCESS))
     except DeicideError as exc:

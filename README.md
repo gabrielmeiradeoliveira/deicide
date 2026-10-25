@@ -292,6 +292,11 @@ The evaluation framework explicitly distinguishes three measurement tiers:
 - `deicide evaluate --baseline`: Compares against the legacy pre-MVP 1.3 baseline validator.
 - `deicide evaluate --strict-severity`: Enforces strict severity equality.
 - `deicide evaluate --end-to-end` (`--e2e`): Runs the full end-to-end review pipeline with the configured provider.
+- `deicide evaluate --provider <name>`: Selects AI provider (`fake` or `nvidia`).
+- `deicide evaluate --allow-external`: Explicitly authorizes transmitting evaluation fixtures to an external provider (required for `nvidia`).
+- `deicide evaluate --max-cases <int>`: Limits evaluation to the first $N$ benchmark cases.
+- `deicide evaluate --max-requests <int>`: Enforces a cumulative API request ceiling across the benchmark run.
+- `deicide evaluate --max-tokens <int>`: Enforces a cumulative token ceiling across the benchmark run.
 - `deicide evaluate --fixtures <path>`: Specifies a custom fixtures JSON file.
 - `deicide evaluate --format json`: Outputs structured machine-readable evaluation metrics.
 
@@ -368,6 +373,12 @@ deicide evaluate --fixtures evaluations/fixtures/real_world_benchmark.json
 
 # Run the full end-to-end pipeline (AST context + provider + post-processing):
 deicide evaluate --end-to-end --provider fake
+
+# Evaluate a bounded slice of benchmark cases with safety budget limits:
+deicide evaluate --fixtures evaluations/fixtures/real_world_benchmark.json --max-cases 5 --max-requests 5
+
+# Benchmark real NVIDIA LLM bug-detection accuracy with explicit external authorization:
+deicide evaluate --fixtures evaluations/fixtures/real_world_benchmark.json --provider nvidia --allow-external --max-cases 5 --max-requests 5
 
 # Export evaluation metrics in machine-readable JSON format:
 deicide evaluate --fixtures evaluations/fixtures/real_world_benchmark.json --format json
