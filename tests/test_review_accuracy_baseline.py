@@ -389,3 +389,95 @@ def test_cli_max_cases_limits_evaluation() -> None:
     assert parsed["dataset_size"] == 3
     assert parsed["max_cases_applied"] == 3
     assert len(parsed["case_results"]) == 3
+
+
+def test_max_requests_counts_actual_http_attempts_including_retries() -> None:
+    """Ensure max_requests bounds actual external HTTP attempts, including retries on failure."""
+    http_call_count = 0
+
+    def retry_then_succeed_transport(req: urllib.request.Request, _timeout: float) -> tuple[int, dict[str, str], str]:
+        nonlocal http_call_count
+        http_call_count += 1
+        if http_call_count == 1:
+            return 503, {}, "Service Unavailable"
+        resp = {
+            "choices": [{"message": {"content": json.dumps({"findings": []})}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        }
+        return 200, {"content-type": "application/json"}, json.dumps(resp)
+
+    provider = NvidiaProvider(
+        api_key=SecretStr("nvapi-test12345"),
+        max_retries=2,
+        sleep_fn=lambda _: None,
+        transport_fn=retry_then_succeed_transport,
+    )
+    fixtures = [
+        EvaluationFixture(
+            case_id=f"case-{i}",
+            description="test",
+            diff_text="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+            file_contents={"a.py": "new\n"},
+            expected_findings=[],
+        )
+        for i in range(5)
+    ]
+
+    budget = ExecutionBudget(max_requests=3, max_retries=2)
+    summary = evaluate_corpus(fixtures, provider=provider, budget=budget, force_end_to_end=True)
+
+    # Attempt 1 (case 0): fails 503
+    # Attempt 2 (case 0 retry): succeeds 200
+    # Attempt 3 (case 1): succeeds 200
+    # Attempt 4 (case 2): blocked by max_requests=3 before making HTTP call!
+    assert http_call_count == 3
+    assert summary.budget_exhausted is True
+    assert summary.case_results[0].status == "completed"
+    assert summary.case_results[1].status == "completed"
+    assert summary.case_results[2].status == "budget_exhausted"
+
+
+def test_max_tokens_accounts_for_provider_reported_tokens_and_halts() -> None:
+    """Ensure max_tokens accounts for actual provider tokens and halts before/after exceeding budget."""
+    http_call_count = 0
+
+    def mock_transport(req: urllib.request.Request, _timeout: float) -> tuple[int, dict[str, str], str]:
+        nonlocal http_call_count
+        http_call_count += 1
+        resp = {
+            "choices": [{"message": {"content": json.dumps({"findings": []})}}],
+            "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300},
+        }
+        return 200, {"content-type": "application/json"}, json.dumps(resp)
+
+    provider = NvidiaProvider(
+        api_key=SecretStr("nvapi-test12345"),
+        max_retries=0,
+        transport_fn=mock_transport,
+    )
+    fixtures = [
+        EvaluationFixture(
+            case_id="case-0",
+            description="test",
+            diff_text="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+            file_contents={"a.py": "new\n"},
+            expected_findings=[],
+        ),
+        EvaluationFixture(
+            case_id="case-1",
+            description="test",
+            diff_text="diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+            file_contents={"a.py": "new\n"},
+            expected_findings=[],
+        ),
+    ]
+
+    # max_total_tokens=1000 allows case 0 (300 tokens used), but case 1 has projected 300 + ~764 > 1000
+    budget = ExecutionBudget(max_requests=10, max_total_tokens=1000)
+    summary = evaluate_corpus(fixtures, provider=provider, budget=budget, force_end_to_end=True)
+
+    assert http_call_count == 1
+    assert summary.budget_exhausted is True
+    assert summary.usage.total_tokens == 300
+    assert summary.case_results[0].status == "completed"
+    assert summary.case_results[1].status == "budget_exhausted"

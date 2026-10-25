@@ -1,0 +1,181 @@
+[
+  {
+    "case_id": "real-requests-01-proxy-leak",
+    "description": "Leaking Proxy-Authorization header to destination servers when redirecting to HTTPS endpoints",
+    "diff_text": "diff --git a/requests/sessions.py b/requests/sessions.py\n--- a/requests/sessions.py\n+++ b/requests/sessions.py\n@@ -10,4 +10,6 @@ class Session:\n         except KeyError:\n             username, password = None, None\n \n+        # Avoid appending this to TLS tunneled requests where it may be leaked.\n+        if not scheme.startswith('https') and username and password:\n             headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)\n",
+    "file_contents": {
+      "requests/sessions.py": "class Session:\n    def rebuild_proxies(self, prepared_request, proxies):\n        headers = prepared_request.headers\n        scheme = prepared_request.url.split(':')[0].lower()\n        try:\n            username, password = get_auth_from_url(proxies.get(scheme))\n        except KeyError:\n            username, password = None, None\n\n        # Avoid appending this to TLS tunneled requests where it may be leaked.\n        if not scheme.startswith('https') and username and password:\n            headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)\n\n        return proxies\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "requests/sessions.py",
+        "line_range": {
+          "start_line": 11,
+          "end_line": 13
+        },
+        "category": "logic_error",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "logic_error",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "requests/sessions.py",
+        "start_line": 11,
+        "end_line": 13,
+        "title": "Proxy credentials leakage on TLS tunneled HTTPS requests",
+        "description": "Proxy-Authorization header must not be attached to HTTPS requests where TLS tunnel prevents proxy from stripping it.",
+        "evidence": "headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)",
+        "suggested_remediation": "Condition proxy header inclusion on non-HTTPS schemes."
+      },
+      {
+        "category": "logic_error",
+        "severity": "medium",
+        "confidence": "medium",
+        "file_path": "requests/sessions.py",
+        "start_line": 12,
+        "end_line": 13,
+        "title": "Sensitive proxy authorization header forwarded to destination",
+        "description": "Proxy-Authorization header leaked to target host during HTTPS tunneling.",
+        "evidence": "headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)",
+        "suggested_remediation": "Strip Proxy-Authorization on https."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/requests",
+    "commit_id": "74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-32681 / PR #6444"
+  },
+  {
+    "case_id": "real-cpython-01-urlsplit-whitespace-bypass",
+    "description": "Leading C0 controls and spaces bypass URL scheme blocklists in urlsplit",
+    "diff_text": "diff --git a/Lib/urllib/parse.py b/Lib/urllib/parse.py\n--- a/Lib/urllib/parse.py\n+++ b/Lib/urllib/parse.py\n@@ -3,3 +3,5 @@ def urlsplit(url, scheme='', allow_fragments=True):\n+    # Strip leading C0 control and space characters\n+    url = url.lstrip(_c0_control_and_space)\n     if '#' in url:\n",
+    "file_contents": {
+      "Lib/urllib/parse.py": "_c0_control_and_space = tuple(chr(i) for i in range(0x20 + 1))\n\ndef urlsplit(url, scheme='', allow_fragments=True):\n    # Strip leading C0 control and space characters\n    url = url.lstrip(_c0_control_and_space)\n    if '#' in url:\n        url, fragment = url.split('#', 1)\n    return url\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "Lib/urllib/parse.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 5
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "Lib/urllib/parse.py",
+        "start_line": 4,
+        "end_line": 5,
+        "title": "Leading whitespace characters bypass URL scheme blocklist",
+        "description": "URLs with leading whitespace or C0 controls cause urlsplit to fail extracting the real scheme, bypassing security filters.",
+        "evidence": "url = url.lstrip(_c0_control_and_space)",
+        "suggested_remediation": "Strip leading C0 controls and whitespace before parsing."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "python/cpython",
+    "commit_id": "38706037a5416dc25d0c0a373ff28ff27863aa99",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-24329 / gh-102153"
+  },
+  {
+    "case_id": "real-flask-01-null-byte-session-dos",
+    "description": "Session cookie decoding crashes on unexpected null byte causing 500 error",
+    "diff_text": "diff --git a/flask/sessions.py b/flask/sessions.py\n--- a/flask/sessions.py\n+++ b/flask/sessions.py\n@@ -7,3 +7,5 @@ class SecureCookieSessionInterface:\n         try:\n             return serializer.loads(val)\n+        except (ValueError, KeyError):\n+            return self.session_class()\n         except BadSignature:\n",
+    "file_contents": {
+      "flask/sessions.py": "class SecureCookieSessionInterface:\n    def open_session(self, app, request):\n        val = request.cookies.get(app.session_cookie_name)\n        if not val:\n            return self.session_class()\n        try:\n            return serializer.loads(val)\n        except (ValueError, KeyError):\n            return self.session_class()\n        except BadSignature:\n            return self.session_class()\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "flask/sessions.py",
+        "line_range": {
+          "start_line": 8,
+          "end_line": 9
+        },
+        "category": "error_handling",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "error_handling",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "flask/sessions.py",
+        "start_line": 8,
+        "end_line": 9,
+        "title": "Unhandled ValueError during session cookie deserialization",
+        "description": "Malformed cookie containing null bytes raises ValueError causing server crash instead of safe fallback.",
+        "evidence": "except (ValueError, KeyError): return self.session_class()",
+        "suggested_remediation": "Catch ValueError and KeyError during session decoding."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/flask",
+    "commit_id": "e3e5792942467d165f992a5ee11f0d367fa6dbba",
+    "is_clean": false,
+    "fix_reference": "CVE-2018-1000656"
+  },
+  {
+    "case_id": "real-tqdm-01-zero-elapsed-division",
+    "description": "ZeroDivisionError when computing rate smoothing when delta_t is zero",
+    "diff_text": "diff --git a/tqdm/std.py b/tqdm/std.py\n--- a/tqdm/std.py\n+++ b/tqdm/std.py\n@@ -2,3 +2,5 @@ class tqdm:\n-        rate = dn / delta_t\n+        if delta_t <= 0:\n+            return 0.0\n+        rate = dn / delta_t\n",
+    "file_contents": {
+      "tqdm/std.py": "class tqdm:\n    def compute_rate(self, dn, delta_t):\n        if delta_t <= 0:\n            return 0.0\n        rate = dn / delta_t\n        return rate\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "tqdm/std.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 5
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "tqdm/std.py",
+        "start_line": 3,
+        "end_line": 5,
+        "title": "ZeroDivisionError in progress rate calculation",
+        "description": "When timer delta_t is 0, dividing dn by delta_t causes an unhandled ZeroDivisionError.",
+        "evidence": "rate = dn / delta_t",
+        "suggested_remediation": "Guard division by checking if delta_t <= 0."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "tqdm/tqdm",
+    "commit_id": "5051df0931aa96e62c1ae3dc991c4d4fdf80e9a7",
+    "is_clean": false,
+    "fix_reference": "BugsInPy Tqdm-1 / Issue #465"
+  },
+  {
+    "case_id": "real-deicide-03-clean-readme-docs",
+    "description": "Clean documentation update for context engine CLI options",
+    "diff_text": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,4 @@\n # DEICIDE\n+## Context Engine\n+DEICIDE includes an AST-powered context selection engine.\n",
+    "file_contents": {
+      "README.md": "# DEICIDE\n## Context Engine\nDEICIDE includes an AST-powered context selection engine.\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "DEICIDE",
+    "commit_id": "cfc826d",
+    "is_clean": true,
+    "fix_reference": "Commit cfc826d"
+  }
+]
