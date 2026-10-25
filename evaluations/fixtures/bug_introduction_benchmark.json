@@ -1,0 +1,262 @@
+[
+  {
+    "case_id": "bug-intro-01-tqdm-zerodiv",
+    "description": "Division by zero introduced in progress rate calculation by removing elapsed time guard",
+    "diff_text": "diff --git a/tqdm/std.py b/tqdm/std.py\n--- a/tqdm/std.py\n+++ b/tqdm/std.py\n@@ -2,4 +2,3 @@ class tqdm:\n     def compute_rate(self, dn: float, delta_t: float) -> float:\n-        if delta_t <= 0:\n-            return 0.0\n-        return dn / delta_t\n+        # Directly compute smoothing rate without checking elapsed duration\n+        return dn / delta_t\n",
+    "file_contents": {
+      "tqdm/std.py": "class tqdm:\n    def compute_rate(self, dn: float, delta_t: float) -> float:\n        # Directly compute smoothing rate without checking elapsed duration\n        return dn / delta_t\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "tqdm/std.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 4
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "tqdm/std.py",
+        "start_line": 4,
+        "end_line": 4,
+        "title": "ZeroDivisionError in progress rate calculation",
+        "description": "When delta_t is zero, evaluating dn / delta_t causes an unhandled ZeroDivisionError.",
+        "evidence": "return dn / delta_t",
+        "suggested_remediation": "Guard division by verifying delta_t > 0 before computing rate."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "tqdm/tqdm",
+    "commit_id": "5051df0931aa96e62c1ae3dc991c4d4fdf80e9a7",
+    "is_clean": false,
+    "fix_reference": "Reconstructed from fix for Issue #465 / BugsInPy Tqdm-1",
+    "provenance": "reconstructed_inverted_fix",
+    "change_type": "defect_introduction",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "bug-intro-02-deicide-budget-underflow",
+    "description": "Boundary condition underflow: removed zero clamp when calculating available context tokens allowing negative token budget",
+    "diff_text": "diff --git a/src/deicide/modules/code_review.py b/src/deicide/modules/code_review.py\n--- a/src/deicide/modules/code_review.py\n+++ b/src/deicide/modules/code_review.py\n@@ -2,3 +2,3 @@ class CodeReviewModule:\n     def calculate_context_budget(self, max_context_tokens: int, baseline_tokens: int) -> int:\n-        return max(0, max_context_tokens - baseline_tokens)\n+        return max_context_tokens - baseline_tokens\n",
+    "file_contents": {
+      "src/deicide/modules/code_review.py": "class CodeReviewModule:\n    def calculate_context_budget(self, max_context_tokens: int, baseline_tokens: int) -> int:\n        return max_context_tokens - baseline_tokens\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/deicide/modules/code_review.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 3
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/deicide/modules/code_review.py",
+        "start_line": 3,
+        "end_line": 3,
+        "title": "Negative context token budget underflow",
+        "description": "When baseline_tokens exceeds max_context_tokens, subtracting without clamping to 0 causes negative token allocation.",
+        "evidence": "return max_context_tokens - baseline_tokens",
+        "suggested_remediation": "Clamp available context tokens using max(0, max_context_tokens - baseline_tokens)."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "deicide",
+    "commit_id": "cfc826d",
+    "is_clean": false,
+    "fix_reference": "Reconstructed from fix for negative context token budget underflow",
+    "provenance": "reconstructed_inverted_fix",
+    "change_type": "defect_introduction",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "bug-intro-03-flask-session-nullbyte-crash",
+    "description": "Missing exception handling: removed ValueError and KeyError handling during session cookie deserialization",
+    "diff_text": "diff --git a/flask/sessions.py b/flask/sessions.py\n--- a/flask/sessions.py\n+++ b/flask/sessions.py\n@@ -6,6 +6,4 @@ class SecureCookieSessionInterface:\n         try:\n             return serializer.loads(val)\n-        except (ValueError, KeyError):\n-            return self.session_class()\n         except BadSignature:\n             return self.session_class()\n",
+    "file_contents": {
+      "flask/sessions.py": "class SecureCookieSessionInterface:\n    def open_session(self, app, request):\n        val = request.cookies.get(app.session_cookie_name)\n        if not val:\n            return self.session_class()\n        try:\n            return serializer.loads(val)\n        except BadSignature:\n            return self.session_class()\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "flask/sessions.py",
+        "line_range": {
+          "start_line": 6,
+          "end_line": 8
+        },
+        "category": "error_handling",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "error_handling",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "flask/sessions.py",
+        "start_line": 7,
+        "end_line": 8,
+        "title": "Unhandled ValueError during session cookie deserialization",
+        "description": "Malformed session cookies containing null bytes raise ValueError or KeyError, causing unhandled server 500 error.",
+        "evidence": "return serializer.loads(val)",
+        "suggested_remediation": "Catch ValueError and KeyError when decoding untrusted cookie payloads."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/flask",
+    "commit_id": "e3e5792942467d165f992a5ee11f0d367fa6dbba",
+    "is_clean": false,
+    "fix_reference": "Reconstructed from fix for CVE-2018-1000656",
+    "provenance": "reconstructed_inverted_fix",
+    "change_type": "defect_introduction",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "bug-intro-04-client-state-mutation",
+    "description": "Incorrect state mutation: in-place modification of shared default headers dictionary causes cross-request state pollution",
+    "diff_text": "diff --git a/requests/sessions.py b/requests/sessions.py\n--- a/requests/sessions.py\n+++ b/requests/sessions.py\n@@ -5,3 +5,3 @@ class Session:\n     def prepare_headers(self, request_headers: dict[str, str] | None = None) -> dict[str, str]:\n-        headers = dict(self.default_headers)\n+        headers = self.default_headers\n         if request_headers:\n",
+    "file_contents": {
+      "requests/sessions.py": "class Session:\n    def __init__(self, default_headers: dict[str, str]):\n        self.default_headers = default_headers\n\n    def prepare_headers(self, request_headers: dict[str, str] | None = None) -> dict[str, str]:\n        headers = self.default_headers\n        if request_headers:\n            headers.update(request_headers)\n        return headers\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "requests/sessions.py",
+        "line_range": {
+          "start_line": 6,
+          "end_line": 8
+        },
+        "category": "state_mutation",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "state_mutation",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "requests/sessions.py",
+        "start_line": 6,
+        "end_line": 8,
+        "title": "In-place mutation of shared default_headers dictionary",
+        "description": "Assigning headers = self.default_headers causes headers.update() to mutate instance defaults in-place, leaking custom headers into subsequent requests.",
+        "evidence": "headers = self.default_headers\n        if request_headers:\n            headers.update(request_headers)",
+        "suggested_remediation": "Create a copy using dict(self.default_headers) or self.default_headers.copy() before updating."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/requests",
+    "commit_id": null,
+    "is_clean": false,
+    "fix_reference": "Synthetic reconstruction of shared dict mutation bug",
+    "provenance": "synthetic_reconstruction",
+    "change_type": "defect_introduction",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "bug-intro-05-cross-file-signature-break",
+    "description": "Cross-file contract violation: removed default parameter from payment service function breaking checkout caller",
+    "diff_text": "diff --git a/services/payment.py b/services/payment.py\n--- a/services/payment.py\n+++ b/services/payment.py\n@@ -1,2 +1,2 @@\n-def charge_card(amount_cents: int, currency: str = 'USD') -> dict:\n+def charge_card(amount_cents: int, currency: str) -> dict:\n     return {'status': 'success', 'currency': currency}\n",
+    "file_contents": {
+      "services/payment.py": "def charge_card(amount_cents: int, currency: str) -> dict:\n    return {'status': 'success', 'currency': currency}\n",
+      "handlers/checkout.py": "from services.payment import charge_card\n\ndef process_checkout(order_total: int) -> dict:\n    return charge_card(order_total)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "services/payment.py",
+        "line_range": {
+          "start_line": 1,
+          "end_line": 1
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "services/payment.py",
+        "start_line": 1,
+        "end_line": 1,
+        "title": "Breaking signature change in charge_card breaks existing callers",
+        "description": "Removing default argument for 'currency' in charge_card breaks caller process_checkout in handlers/checkout.py, causing a runtime TypeError.",
+        "evidence": "def charge_card(amount_cents: int, currency: str) -> dict:",
+        "suggested_remediation": "Preserve default currency argument (e.g. currency: str = 'USD') or update all caller call sites."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "deicide",
+    "commit_id": null,
+    "is_clean": false,
+    "fix_reference": "Synthetic reconstruction of cross-module interface break",
+    "provenance": "synthetic_reconstruction",
+    "change_type": "defect_introduction",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "clean-neg-01-tqdm-guarded-rate-fix",
+    "description": "Legitimate bug fix: guards progress rate division with if delta_t <= 0 to prevent ZeroDivisionError",
+    "diff_text": "diff --git a/tqdm/std.py b/tqdm/std.py\n--- a/tqdm/std.py\n+++ b/tqdm/std.py\n@@ -2,2 +2,4 @@ class tqdm:\n     def compute_rate(self, dn: float, delta_t: float) -> float:\n+        if delta_t <= 0:\n+            return 0.0\n         return dn / delta_t\n",
+    "file_contents": {
+      "tqdm/std.py": "class tqdm:\n    def compute_rate(self, dn: float, delta_t: float) -> float:\n        if delta_t <= 0:\n            return 0.0\n        return dn / delta_t\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "tqdm/tqdm",
+    "commit_id": "5051df0931aa96e62c1ae3dc991c4d4fdf80e9a7",
+    "is_clean": true,
+    "fix_reference": "Issue #465 / BugsInPy Tqdm-1",
+    "provenance": "fully_verified",
+    "change_type": "clean_bug_fix",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "clean-neg-02-safe-helper-refactor",
+    "description": "Safe refactoring: extracts header normalization logic into private helper function without behavioral change",
+    "diff_text": "diff --git a/src/http/headers.py b/src/http/headers.py\n--- a/src/http/headers.py\n+++ b/src/http/headers.py\n@@ -1,4 +1,7 @@\n+def _normalize_key(key: str) -> str:\n+    return key.strip().lower()\n+\n def format_headers(raw_headers: dict[str, str]) -> dict[str, str]:\n     formatted = {}\n     for k, v in raw_headers.items():\n-        formatted[k.strip().lower()] = v.strip()\n+        formatted[_normalize_key(k)] = v.strip()\n     return formatted\n",
+    "file_contents": {
+      "src/http/headers.py": "def _normalize_key(key: str) -> str:\n    return key.strip().lower()\n\ndef format_headers(raw_headers: dict[str, str]) -> dict[str, str]:\n    formatted = {}\n    for k, v in raw_headers.items():\n        formatted[_normalize_key(k)] = v.strip()\n    return formatted\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "deicide",
+    "commit_id": null,
+    "is_clean": true,
+    "fix_reference": "Synthetic benchmark fixture modeling safe helper function extraction",
+    "provenance": "synthetic_reconstruction",
+    "change_type": "clean_unrelated",
+    "suitable_for_live_benchmark": true
+  },
+  {
+    "case_id": "clean-neg-03-docstring-and-typing-docs",
+    "description": "Documentation update: adds detailed docstrings and parameter descriptions to analysis runner function",
+    "diff_text": "diff --git a/src/deicide/runner.py b/src/deicide/runner.py\n--- a/src/deicide/runner.py\n+++ b/src/deicide/runner.py\n@@ -1,3 +1,7 @@\n def execute_analysis(module_name: str, timeout_seconds: float = 30.0) -> bool:\n+    # Execute code analysis pipeline for the selected module.\n+    # module_name: Unique registered identifier for the analysis module.\n+    # timeout_seconds: Per-module execution deadline in seconds.\n     return True\n",
+    "file_contents": {
+      "src/deicide/runner.py": "def execute_analysis(module_name: str, timeout_seconds: float = 30.0) -> bool:\n    # Execute code analysis pipeline for the selected module.\n    # module_name: Unique registered identifier for the analysis module.\n    # timeout_seconds: Per-module execution deadline in seconds.\n    return True\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "deicide",
+    "commit_id": "cfc826d",
+    "is_clean": true,
+    "fix_reference": "Commit cfc826d documentation update",
+    "provenance": "fully_verified",
+    "change_type": "clean_unrelated",
+    "suitable_for_live_benchmark": true
+  }
+]
