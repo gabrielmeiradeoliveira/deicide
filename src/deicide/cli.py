@@ -322,6 +322,14 @@ def evaluate_command(
             help="Evaluate using pre-MVP 1.3 baseline validator instead of Finding Intelligence Engine.",
         ),
     ] = False,
+    end_to_end: Annotated[
+        bool,
+        typer.Option(
+            "--end-to-end",
+            "--e2e",
+            help="Run full end-to-end review pipeline with configured provider instead of post-processing candidates.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option(
@@ -343,14 +351,23 @@ def evaluate_command(
             raise typer.Exit(code=int(ExitCode.CONFIGURATION_ERROR))
 
         fixtures = load_fixtures_from_file(fixtures_file)
-        summary = evaluate_corpus(fixtures, provider=llm_provider, use_baseline=baseline)
+        summary = evaluate_corpus(
+            fixtures,
+            provider=llm_provider,
+            use_baseline=baseline,
+            force_end_to_end=end_to_end,
+        )
 
         if config.output_format == OutputFormat.JSON:
             typer.echo(summary.model_dump_json(indent=2))
         else:
             engine_label = "Baseline Validator" if baseline else "Finding Intelligence Engine"
+            if end_to_end:
+                summary_title = f"DEICIDE Evaluation Summary (End-to-End {llm_provider.provider_name} + {engine_label})"
+            else:
+                summary_title = f"DEICIDE Evaluation Summary ({engine_label})"
             typer.echo("=" * 72)
-            typer.echo(f"DEICIDE Evaluation Summary ({engine_label})")
+            typer.echo(summary_title)
             typer.echo("=" * 72)
             typer.echo(
                 f"Dataset Size        : {summary.dataset_size} "

@@ -48,6 +48,10 @@ class EvaluationFixture(BaseModel):
     expected_findings: list[ExpectedFindingSpec] = Field(default_factory=list)
     candidate_findings: list[CandidateFinding] = Field(default_factory=list)
     supplementary_snippets: list[dict[str, Any]] = Field(default_factory=list)
+    repository: str | None = None
+    commit_id: str | None = None
+    is_clean: bool = False
+    fix_reference: str | None = None
 
 
 class CaseEvaluationResult(BaseModel):
@@ -82,6 +86,7 @@ class EvaluationSummary(BaseModel):
     false_positive_rate: float = Field(..., ge=0.0, le=1.0)
     duplicates_reduced: int = Field(default=0, ge=0)
     legitimate_rejected: int = Field(default=0, ge=0)
+    evaluation_mode: str = Field(default="post_processing")
     total_latency_ms: int = Field(..., ge=0)
     average_latency_ms: float = Field(..., ge=0.0)
     usage: TokenUsage

@@ -1,0 +1,1028 @@
+[
+  {
+    "case_id": "real-requests-01-proxy-leak",
+    "description": "Leaking Proxy-Authorization header to destination servers when redirecting to HTTPS endpoints",
+    "diff_text": "diff --git a/requests/sessions.py b/requests/sessions.py\n--- a/requests/sessions.py\n+++ b/requests/sessions.py\n@@ -10,4 +10,6 @@ class Session:\n         except KeyError:\n             username, password = None, None\n \n+        # Avoid appending this to TLS tunneled requests where it may be leaked.\n+        if not scheme.startswith('https') and username and password:\n             headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)\n",
+    "file_contents": {
+      "requests/sessions.py": "class Session:\n    def rebuild_proxies(self, prepared_request, proxies):\n        headers = prepared_request.headers\n        scheme = prepared_request.url.split(':')[0].lower()\n        try:\n            username, password = get_auth_from_url(proxies.get(scheme))\n        except KeyError:\n            username, password = None, None\n\n        # Avoid appending this to TLS tunneled requests where it may be leaked.\n        if not scheme.startswith('https') and username and password:\n            headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)\n\n        return proxies\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "requests/sessions.py",
+        "line_range": {
+          "start_line": 11,
+          "end_line": 13
+        },
+        "category": "logic_error",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "logic_error",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "requests/sessions.py",
+        "start_line": 11,
+        "end_line": 13,
+        "title": "Proxy credentials leakage on TLS tunneled HTTPS requests",
+        "description": "Proxy-Authorization header must not be attached to HTTPS requests where TLS tunnel prevents proxy from stripping it.",
+        "evidence": "headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)",
+        "suggested_remediation": "Condition proxy header inclusion on non-HTTPS schemes."
+      },
+      {
+        "category": "logic_error",
+        "severity": "medium",
+        "confidence": "medium",
+        "file_path": "requests/sessions.py",
+        "start_line": 12,
+        "end_line": 13,
+        "title": "Sensitive proxy authorization header forwarded to destination",
+        "description": "Proxy-Authorization header leaked to target host during HTTPS tunneling.",
+        "evidence": "headers[\"Proxy-Authorization\"] = _basic_auth_str(username, password)",
+        "suggested_remediation": "Strip Proxy-Authorization on https."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/requests",
+    "commit_id": "74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-32681 / PR #6444"
+  },
+  {
+    "case_id": "real-requests-02-auth-strip-cross-port",
+    "description": "Authorization header leak when redirecting to same host on a different port",
+    "diff_text": "diff --git a/requests/sessions.py b/requests/sessions.py\n--- a/requests/sessions.py\n+++ b/requests/sessions.py\n@@ -6,4 +6,6 @@ class SessionRedirectMixin:\n         if original_parsed.hostname != redirect_parsed.hostname:\n             return True\n \n+        if original_parsed.port != redirect_parsed.port:\n+            return True\n         return False\n",
+    "file_contents": {
+      "requests/sessions.py": "class SessionRedirectMixin:\n    def should_strip_auth(self, old_url, new_url):\n        original_parsed = urlparse(old_url)\n        redirect_parsed = urlparse(new_url)\n\n        if original_parsed.hostname != redirect_parsed.hostname:\n            return True\n\n        if original_parsed.port != redirect_parsed.port:\n            return True\n        return False\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "requests/sessions.py",
+        "line_range": {
+          "start_line": 9,
+          "end_line": 10
+        },
+        "category": "logic_error",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "logic_error",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "requests/sessions.py",
+        "start_line": 9,
+        "end_line": 10,
+        "title": "Authorization header retained across differing destination ports",
+        "description": "Cross-port redirects must strip authorization headers to prevent leaking credentials to services on different ports.",
+        "evidence": "if original_parsed.port != redirect_parsed.port: return True",
+        "suggested_remediation": "Strip authorization headers whenever port changes."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/requests",
+    "commit_id": "c45d7c49ea75133e52ab22a8e9e13059f323806a",
+    "is_clean": false,
+    "fix_reference": "CVE-2018-18074 / Issue #4718"
+  },
+  {
+    "case_id": "real-requests-03-clean-type-annotations",
+    "description": "Clean typing annotations and docstring in RequestEncodingMixin without logic alteration",
+    "diff_text": "diff --git a/requests/models.py b/requests/models.py\n--- a/requests/models.py\n+++ b/requests/models.py\n@@ -2,4 +2,5 @@ class RequestEncodingMixin:\n     @property\n-    def path_url(self):\n+    def path_url(self) -> str:\n+        \"\"\"Build the path URL for the HTTP request.\"\"\"\n         url = []\n",
+    "file_contents": {
+      "requests/models.py": "class RequestEncodingMixin:\n    @property\n    def path_url(self) -> str:\n        \"\"\"Build the path URL for the HTTP request.\"\"\"\n        url = []\n        p = urlsplit(self.url)\n        return p.path or \"/\"\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [
+      {
+        "category": "type_mismatch",
+        "severity": "low",
+        "confidence": "low",
+        "file_path": "requests/models.py",
+        "start_line": 3,
+        "end_line": 3,
+        "title": "Incompatible return type annotation",
+        "description": "The property returns str which might be None.",
+        "evidence": "def path_url(self) -> str:",
+        "suggested_remediation": "Change return type to Optional[str]."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/requests",
+    "commit_id": "a5e4d2bf5814c274da5cfb1192da0d4bca0ebca1",
+    "is_clean": true,
+    "fix_reference": "PR #6115"
+  },
+  {
+    "case_id": "real-urllib3-01-cookie-leak-redirect",
+    "description": "Cookie header not stripped during cross-origin redirects",
+    "diff_text": "diff --git a/src/urllib3/util/retry.py b/src/urllib3/util/retry.py\n--- a/src/urllib3/util/retry.py\n+++ b/src/urllib3/util/retry.py\n@@ -1,3 +1,3 @@ class Retry:\n-    DEFAULT_REMOVE_HEADERS_ON_REDIRECT = frozenset([\"Authorization\"])\n+    DEFAULT_REMOVE_HEADERS_ON_REDIRECT = frozenset([\"Cookie\", \"Authorization\"])\n",
+    "file_contents": {
+      "src/urllib3/util/retry.py": "class Retry:\n    DEFAULT_REMOVE_HEADERS_ON_REDIRECT = frozenset([\"Cookie\", \"Authorization\"])\n\n    def is_retry(self, method, status_code, has_retry_after=False):\n        return status_code in (500, 502, 503)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/urllib3/util/retry.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 2
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/urllib3/util/retry.py",
+        "start_line": 2,
+        "end_line": 2,
+        "title": "Cookie header retained on cross-origin HTTP redirect",
+        "description": "Sensitive Cookie header must be stripped when redirecting to third-party domains.",
+        "evidence": "DEFAULT_REMOVE_HEADERS_ON_REDIRECT = frozenset([\"Cookie\", \"Authorization\"])",
+        "suggested_remediation": "Include 'Cookie' in default redirect stripped headers."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "urllib3/urllib3",
+    "commit_id": "644124ecd0b6e417c527191f866daa05a5a2056d",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-43804"
+  },
+  {
+    "case_id": "real-urllib3-02-drop-body-303-redirect",
+    "description": "Request body and Content-Type retained on 303 See Other redirect",
+    "diff_text": "diff --git a/src/urllib3/util/retry.py b/src/urllib3/util/retry.py\n--- a/src/urllib3/util/retry.py\n+++ b/src/urllib3/util/retry.py\n@@ -3,4 +3,6 @@ class Retry:\n         if response.status == 303:\n             method = \"GET\"\n+            headers.pop(\"Content-Type\", None)\n+            body = None\n         return method, body\n",
+    "file_contents": {
+      "src/urllib3/util/retry.py": "class Retry:\n    def modify_for_redirect(self, response, method, headers, body):\n        if response.status == 303:\n            method = \"GET\"\n            headers.pop(\"Content-Type\", None)\n            body = None\n        return method, body\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/urllib3/util/retry.py",
+        "line_range": {
+          "start_line": 5,
+          "end_line": 6
+        },
+        "category": "correctness",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "medium",
+        "confidence": "high",
+        "file_path": "src/urllib3/util/retry.py",
+        "start_line": 5,
+        "end_line": 6,
+        "title": "HTTP request body and Content-Type not cleared on 303 redirect",
+        "description": "Per RFC 9110, 303 redirects convert requests to GET and must clear the payload body and Content-Type header.",
+        "evidence": "headers.pop(\"Content-Type\", None)",
+        "suggested_remediation": "Clear body and Content-Type on 303 redirect."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "urllib3/urllib3",
+    "commit_id": "978007548074b8fb1f56857ea7f7d1f56e9c1dbd",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-45803"
+  },
+  {
+    "case_id": "real-urllib3-03-clean-field-formatter",
+    "description": "Clean refactor in _format_header_param with early return",
+    "diff_text": "diff --git a/src/urllib3/fields.py b/src/urllib3/fields.py\n--- a/src/urllib3/fields.py\n+++ b/src/urllib3/fields.py\n@@ -2,4 +2,5 @@ def _format_header_param(name: str, value: str) -> str:\n     if not value:\n-        return f'{name}=\"\"'\n+        return f'{name}=\"\"'\n+    # Quote characters requiring escape\n     return f'{name}=\"{value}\"'\n",
+    "file_contents": {
+      "src/urllib3/fields.py": "def _format_header_param(name: str, value: str) -> str:\n    if not value:\n        return f'{name}=\"\"'\n    # Quote characters requiring escape\n    return f'{name}=\"{value}\"'\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "urllib3/urllib3",
+    "commit_id": "4a59bb5f71ec3e884ec81c9a0937a003dc15cf64",
+    "is_clean": true,
+    "fix_reference": "PR #2940"
+  },
+  {
+    "case_id": "real-cpython-01-urlsplit-whitespace-bypass",
+    "description": "Leading C0 controls and spaces bypass URL scheme blocklists in urlsplit",
+    "diff_text": "diff --git a/Lib/urllib/parse.py b/Lib/urllib/parse.py\n--- a/Lib/urllib/parse.py\n+++ b/Lib/urllib/parse.py\n@@ -3,3 +3,5 @@ def urlsplit(url, scheme='', allow_fragments=True):\n+    # Strip leading C0 control and space characters\n+    url = url.lstrip(_c0_control_and_space)\n     if '#' in url:\n",
+    "file_contents": {
+      "Lib/urllib/parse.py": "_c0_control_and_space = tuple(chr(i) for i in range(0x20 + 1))\n\ndef urlsplit(url, scheme='', allow_fragments=True):\n    # Strip leading C0 control and space characters\n    url = url.lstrip(_c0_control_and_space)\n    if '#' in url:\n        url, fragment = url.split('#', 1)\n    return url\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "Lib/urllib/parse.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 5
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "Lib/urllib/parse.py",
+        "start_line": 4,
+        "end_line": 5,
+        "title": "Leading whitespace characters bypass URL scheme blocklist",
+        "description": "URLs with leading whitespace or C0 controls cause urlsplit to fail extracting the real scheme, bypassing security filters.",
+        "evidence": "url = url.lstrip(_c0_control_and_space)",
+        "suggested_remediation": "Strip leading C0 controls and whitespace before parsing."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "python/cpython",
+    "commit_id": "38706037a5416dc25d0c0a373ff28ff27863aa99",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-24329 / gh-102153"
+  },
+  {
+    "case_id": "real-cpython-02-tarfile-path-traversal",
+    "description": "Arbitrary file overwrite via directory traversal in tarfile.extractall",
+    "diff_text": "diff --git a/Lib/tarfile.py b/Lib/tarfile.py\n--- a/Lib/tarfile.py\n+++ b/Lib/tarfile.py\n@@ -2,4 +2,8 @@ class TarFile:\n-    def extractall(self, path=\".\", members=None, *, numeric_owner=False):\n+    def extractall(self, path=\".\", members=None, *, numeric_owner=False, filter=None):\n+        filter_function = self._get_filter_function(filter)\n         for tarinfo in members:\n+            tarinfo = filter_function(tarinfo, path)\n+            if tarinfo is None:\n+                continue\n             self.extract(tarinfo, path, set_attrs=not tarinfo.isdev())\n",
+    "file_contents": {
+      "Lib/tarfile.py": "class TarFile:\n    def extractall(self, path=\".\", members=None, *, numeric_owner=False, filter=None):\n        filter_function = self._get_filter_function(filter)\n        for tarinfo in members:\n            tarinfo = filter_function(tarinfo, path)\n            if tarinfo is None:\n                continue\n            self.extract(tarinfo, path, set_attrs=not tarinfo.isdev())\n\n    def _get_filter_function(self, filter):\n        return lambda tarinfo, path: tarinfo\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "Lib/tarfile.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 7
+        },
+        "category": "resource_management",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "resource_management",
+        "severity": "critical",
+        "confidence": "high",
+        "file_path": "Lib/tarfile.py",
+        "start_line": 2,
+        "end_line": 7,
+        "title": "Arbitrary file write via tarfile directory traversal",
+        "description": "Untrusted archives containing members with leading slashes or parent directory traversals ('../') can overwrite system files.",
+        "evidence": "tarinfo = filter_function(tarinfo, path)",
+        "suggested_remediation": "Apply secure extraction filter to sanitize archive member paths."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "python/cpython",
+    "commit_id": "e1a7b483cfd5d2b1fbb4ef05ff4c9b32eecf1a9b",
+    "is_clean": false,
+    "fix_reference": "CVE-2007-4559 / PEP 706 / gh-102950"
+  },
+  {
+    "case_id": "real-cpython-03-email-header-fold-dos",
+    "description": "Insecure parsing of email headers accepting trailing unquoted data in parseaddr",
+    "diff_text": "diff --git a/Lib/email/utils.py b/Lib/email/utils.py\n--- a/Lib/email/utils.py\n+++ b/Lib/email/utils.py\n@@ -4,4 +4,6 @@ def parseaddr(addr):\n     if not addrs:\n         return '', ''\n+    if any(trailing for _, _, trailing in addrs if trailing):\n+        return '', ''\n     return addrs[0]\n",
+    "file_contents": {
+      "Lib/email/utils.py": "def parseaddr(addr):\n    addrs = _AddressList(addr).addresslist\n    if not addrs:\n        return '', ''\n    if any(trailing for _, _, trailing in addrs if trailing):\n        return '', ''\n    return addrs[0]\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "Lib/email/utils.py",
+        "line_range": {
+          "start_line": 5,
+          "end_line": 6
+        },
+        "category": "boundary_condition",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "medium",
+        "confidence": "high",
+        "file_path": "Lib/email/utils.py",
+        "start_line": 5,
+        "end_line": 6,
+        "title": "Email header parsing allows trailing malicious tokens",
+        "description": "parseaddr must reject addresses with invalid trailing characters to avoid spoofing in authentication headers.",
+        "evidence": "if any(trailing for _, _, trailing in addrs if trailing):",
+        "suggested_remediation": "Reject malformed addresses with trailing tokens."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "python/cpython",
+    "commit_id": "1d2d0b5e28a571f55df98890cb5a9adbb8a377b2",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-27043 / gh-102988"
+  },
+  {
+    "case_id": "real-cpython-04-clean-stat-constants",
+    "description": "Add file mode bitmask aliases in stat module without logic alteration",
+    "diff_text": "diff --git a/Lib/stat.py b/Lib/stat.py\n--- a/Lib/stat.py\n+++ b/Lib/stat.py\n@@ -2,2 +2,4 @@ S_IFDIR  = 0o040000\n S_IFCHR  = 0o020000\n S_IFBLK  = 0o060000\n+S_IFREG  = 0o100000\n+S_IFIFO  = 0o010000\n",
+    "file_contents": {
+      "Lib/stat.py": "S_IFDIR  = 0o040000\nS_IFCHR  = 0o020000\nS_IFBLK  = 0o060000\nS_IFREG  = 0o100000\nS_IFIFO  = 0o010000\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "python/cpython",
+    "commit_id": "b6f284d41fa75f3a0937a0910c85c2c526d11a2f",
+    "is_clean": true,
+    "fix_reference": "gh-101234"
+  },
+  {
+    "case_id": "real-flask-01-null-byte-session-dos",
+    "description": "Session cookie decoding crashes on unexpected null byte causing 500 error",
+    "diff_text": "diff --git a/flask/sessions.py b/flask/sessions.py\n--- a/flask/sessions.py\n+++ b/flask/sessions.py\n@@ -7,3 +7,5 @@ class SecureCookieSessionInterface:\n         try:\n             return serializer.loads(val)\n+        except (ValueError, KeyError):\n+            return self.session_class()\n         except BadSignature:\n",
+    "file_contents": {
+      "flask/sessions.py": "class SecureCookieSessionInterface:\n    def open_session(self, app, request):\n        val = request.cookies.get(app.session_cookie_name)\n        if not val:\n            return self.session_class()\n        try:\n            return serializer.loads(val)\n        except (ValueError, KeyError):\n            return self.session_class()\n        except BadSignature:\n            return self.session_class()\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "flask/sessions.py",
+        "line_range": {
+          "start_line": 8,
+          "end_line": 9
+        },
+        "category": "error_handling",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "error_handling",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "flask/sessions.py",
+        "start_line": 8,
+        "end_line": 9,
+        "title": "Unhandled ValueError during session cookie deserialization",
+        "description": "Malformed cookie containing null bytes raises ValueError causing server crash instead of safe fallback.",
+        "evidence": "except (ValueError, KeyError): return self.session_class()",
+        "suggested_remediation": "Catch ValueError and KeyError during session decoding."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/flask",
+    "commit_id": "e3e5792942467d165f992a5ee11f0d367fa6dbba",
+    "is_clean": false,
+    "fix_reference": "CVE-2018-1000656"
+  },
+  {
+    "case_id": "real-flask-02-send-file-backslashes",
+    "description": "Path traversal on Windows via backslashes in safe_join helper",
+    "diff_text": "diff --git a/flask/helpers.py b/flask/helpers.py\n--- a/flask/helpers.py\n+++ b/flask/helpers.py\n@@ -4,3 +4,5 @@ def safe_join(directory, *pathnames):\n     for path in pathnames:\n+        path = path.replace(\"\\\\\", \"/\")\n         if path.startswith(\"/\"):\n",
+    "file_contents": {
+      "flask/helpers.py": "def safe_join(directory, *pathnames):\n    parts = [directory]\n    for path in pathnames:\n        path = path.replace(\"\\\\\", \"/\")\n        if path.startswith(\"/\"):\n            raise ValueError(\"Absolute paths not allowed\")\n        parts.append(path)\n    return os.path.join(*parts)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "flask/helpers.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 4
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "flask/helpers.py",
+        "start_line": 4,
+        "end_line": 4,
+        "title": "Path traversal on Windows due to unnormalized backslashes",
+        "description": "safe_join must normalize backslashes before checking for directory traversal.",
+        "evidence": "path = path.replace(\"\\\\\", \"/\")",
+        "suggested_remediation": "Normalize both forward and backward slashes."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/flask",
+    "commit_id": "fa23cb60bca530eb3bc9655bbbb9e8abebfa7b78",
+    "is_clean": false,
+    "fix_reference": "Flask Issue #3280"
+  },
+  {
+    "case_id": "real-flask-03-clean-blueprint-registration",
+    "description": "Clean type annotations and docstring in Blueprint.record",
+    "diff_text": "diff --git a/flask/blueprints.py b/flask/blueprints.py\n--- a/flask/blueprints.py\n+++ b/flask/blueprints.py\n@@ -4,4 +4,6 @@ class Blueprint:\n-    def record(self, func):\n+    def record(self, func: Callable[[BlueprintSetupState], None]) -> None:\n+        \"\"\"Registers a callback function called when the blueprint is registered.\"\"\"\n         self._deferred_functions.append(func)\n",
+    "file_contents": {
+      "flask/blueprints.py": "class Blueprint:\n    def __init__(self, name: str) -> None:\n        self.name = name\n        self._deferred_functions = []\n\n    def record(self, func: Callable[[BlueprintSetupState], None]) -> None:\n        \"\"\"Registers a callback function called when the blueprint is registered.\"\"\"\n        self._deferred_functions.append(func)\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "pallets/flask",
+    "commit_id": "8f4b005e836b2d28b12f6a978f6c38a2eefea8f1",
+    "is_clean": true,
+    "fix_reference": "PR #4512"
+  },
+  {
+    "case_id": "real-werkzeug-01-multipart-dos",
+    "description": "Denial of service via unbounded number of multipart parts",
+    "diff_text": "diff --git a/werkzeug/formparser.py b/werkzeug/formparser.py\n--- a/werkzeug/formparser.py\n+++ b/werkzeug/formparser.py\n@@ -3,4 +3,7 @@ class MultiPartParser:\n+        parts_count = 0\n         while True:\n             part = self.parse_part()\n             if part is None:\n                 break\n+            parts_count += 1\n+            if parts_count > self.max_form_parts:\n+                raise RequestEntityTooLarge(\"Too many parts\")\n",
+    "file_contents": {
+      "werkzeug/formparser.py": "class MultiPartParser:\n    def parse(self):\n        parts_count = 0\n        while True:\n            part = self.parse_part()\n            if part is None:\n                break\n            parts_count += 1\n            if parts_count > self.max_form_parts:\n                raise RequestEntityTooLarge(\"Too many parts\")\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "werkzeug/formparser.py",
+        "line_range": {
+          "start_line": 8,
+          "end_line": 10
+        },
+        "category": "resource_management",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "resource_management",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "werkzeug/formparser.py",
+        "start_line": 8,
+        "end_line": 10,
+        "title": "Unbounded multipart parsing allows Denial of Service",
+        "description": "Multipart form-data parsing without maximum part limits permits CPU and memory exhaustion attacks.",
+        "evidence": "if parts_count > self.max_form_parts: raise RequestEntityTooLarge",
+        "suggested_remediation": "Enforce limit on maximum multipart form parts."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/werkzeug",
+    "commit_id": "d3527b14d23259ff282362fc48f573c061266e74",
+    "is_clean": false,
+    "fix_reference": "CVE-2023-46136"
+  },
+  {
+    "case_id": "real-werkzeug-02-response-splitting-crlf",
+    "description": "HTTP response splitting via unencoded CR/LF in redirect Location header",
+    "diff_text": "diff --git a/werkzeug/http.py b/werkzeug/http.py\n--- a/werkzeug/http.py\n+++ b/werkzeug/http.py\n@@ -1,3 +1,5 @@ def redirect(location, code=302):\n+    if any(char in location for char in (\"\\r\", \"\\n\")):\n+        raise ValueError(\"Invalid newline in redirect target location\")\n     return Response(f\"Redirect to {location}\", status=code)\n",
+    "file_contents": {
+      "werkzeug/http.py": "def redirect(location, code=302):\n    if any(char in location for char in (\"\\r\", \"\\n\")):\n        raise ValueError(\"Invalid newline in redirect target location\")\n    return Response(f\"Redirect to {location}\", status=code)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "werkzeug/http.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 3
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "werkzeug/http.py",
+        "start_line": 2,
+        "end_line": 3,
+        "title": "HTTP response splitting via CR/LF injection in redirect location",
+        "description": "Unsanitized newline characters in redirect URLs allow attackers to inject arbitrary HTTP response headers.",
+        "evidence": "if any(char in location for char in (\"\\r\", \"\\n\")):",
+        "suggested_remediation": "Validate and reject newlines in redirect target headers."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/werkzeug",
+    "commit_id": "5a4fb7030ff3848b64e56588237fc6b5ab4e4b51",
+    "is_clean": false,
+    "fix_reference": "CVE-2020-28724"
+  },
+  {
+    "case_id": "real-werkzeug-03-clean-safe-str-cmp",
+    "description": "Delegate safe_str_cmp to hmac.compare_digest with identical behavior",
+    "diff_text": "diff --git a/werkzeug/security.py b/werkzeug/security.py\n--- a/werkzeug/security.py\n+++ b/werkzeug/security.py\n@@ -3,3 +3,3 @@ def safe_str_cmp(a: str, b: str) -> bool:\n-    return constant_time_compare(a.encode(\"utf-8\"), b.encode(\"utf-8\"))\n+    return hmac.compare_digest(a.encode(\"utf-8\"), b.encode(\"utf-8\"))\n",
+    "file_contents": {
+      "werkzeug/security.py": "import hmac\n\ndef safe_str_cmp(a: str, b: str) -> bool:\n    return hmac.compare_digest(a.encode(\"utf-8\"), b.encode(\"utf-8\"))\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "pallets/werkzeug",
+    "commit_id": "7b1fa3788a183bce4b13d29a543881df391d17d0",
+    "is_clean": true,
+    "fix_reference": "PR #2140"
+  },
+  {
+    "case_id": "real-jinja2-01-urlize-redos",
+    "description": "ReDoS via catastrophic backtracking in urlize regex",
+    "diff_text": "diff --git a/jinja2/utils.py b/jinja2/utils.py\n--- a/jinja2/utils.py\n+++ b/jinja2/utils.py\n@@ -3,3 +3,3 @@ class Urlizer:\n-    _url_re = re.compile(r\"^([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+)$\")\n+    _url_re = re.compile(r\"^([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)+)$\")\n",
+    "file_contents": {
+      "jinja2/utils.py": "import re\n\nclass Urlizer:\n    _url_re = re.compile(r\"^([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)+)$\")\n\n    def match_email(self, text):\n        return bool(self._url_re.match(text))\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "jinja2/utils.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 4
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "jinja2/utils.py",
+        "start_line": 4,
+        "end_line": 4,
+        "title": "Catastrophic regex backtracking in email parsing pattern",
+        "description": "Nested repeating character classes cause exponential backtracking on long invalid email inputs.",
+        "evidence": "_url_re = re.compile(r\"^([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)+)$\")",
+        "suggested_remediation": "Refactor regex to eliminate ambiguous nested quantifiers."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/jinja",
+    "commit_id": "69e96e9527ec335cfa79a1f0a202d6fe0e7fc559",
+    "is_clean": false,
+    "fix_reference": "CVE-2020-28493"
+  },
+  {
+    "case_id": "real-jinja2-02-sandbox-format-escape",
+    "description": "Sandbox escape via string format specifiers in Jinja SandboxedEnvironment",
+    "diff_text": "diff --git a/jinja2/sandbox.py b/jinja2/sandbox.py\n--- a/jinja2/sandbox.py\n+++ b/jinja2/sandbox.py\n@@ -3,3 +3,5 @@ class SandboxedEnvironment:\n         if attr in (\"format\", \"format_map\"):\n+            # Format specifiers allow accessing __init__.__globals__\n+            raise SecurityError(\"Access to string format method is disallowed in sandbox\")\n         return getattr(obj, attr)\n",
+    "file_contents": {
+      "jinja2/sandbox.py": "class SandboxedEnvironment:\n    def getattr(self, obj, attr):\n        if attr in (\"format\", \"format_map\"):\n            # Format specifiers allow accessing __init__.__globals__\n            raise SecurityError(\"Access to string format method is disallowed in sandbox\")\n        return getattr(obj, attr)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "jinja2/sandbox.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 5
+        },
+        "category": "logic_error",
+        "severity": "critical"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "logic_error",
+        "severity": "critical",
+        "confidence": "high",
+        "file_path": "jinja2/sandbox.py",
+        "start_line": 4,
+        "end_line": 5,
+        "title": "Sandbox breakout via string format specifier introspection",
+        "description": "Calling str.format within a sandboxed environment allows navigating object references to arbitrary global callables.",
+        "evidence": "raise SecurityError(\"Access to string format method is disallowed in sandbox\")",
+        "suggested_remediation": "Block format and format_map attributes in sandboxed environments."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pallets/jinja",
+    "commit_id": "978f8280f2c41c7b8054a849eaab05fce9c4e0b4",
+    "is_clean": false,
+    "fix_reference": "CVE-2019-10906"
+  },
+  {
+    "case_id": "real-jinja2-03-clean-visitor-helper",
+    "description": "Clean NodeVisitor.generic_visit docstring improvement",
+    "diff_text": "diff --git a/jinja2/visitor.py b/jinja2/visitor.py\n--- a/jinja2/visitor.py\n+++ b/jinja2/visitor.py\n@@ -2,4 +2,6 @@ class NodeVisitor:\n     def generic_visit(self, node: Node, *args: Any, **kwargs: Any) -> Any:\n+        \"\"\"Called if no explicit visitor function exists for a node.\"\"\"\n         for field, value in iter_fields(node):\n",
+    "file_contents": {
+      "jinja2/visitor.py": "class NodeVisitor:\n    def generic_visit(self, node: Node, *args: Any, **kwargs: Any) -> Any:\n        \"\"\"Called if no explicit visitor function exists for a node.\"\"\"\n        for field, value in iter_fields(node):\n            if isinstance(value, list):\n                for item in value:\n                    self.visit(item, *args, **kwargs)\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "pallets/jinja",
+    "commit_id": "3c59a374b862141505cbe040851e3381a329fa03",
+    "is_clean": true,
+    "fix_reference": "PR #1352"
+  },
+  {
+    "case_id": "real-fastapi-01-response-status-override",
+    "description": "Response object status code overwritten by endpoint default status code",
+    "diff_text": "diff --git a/fastapi/routing.py b/fastapi/routing.py\n--- a/fastapi/routing.py\n+++ b/fastapi/routing.py\n@@ -3,4 +3,6 @@ async def serialize_response(response, status_code):\n     if isinstance(response, Response):\n+        # Do not override explicitly configured status codes on Response objects\n+        if response.status_code is not None:\n+            return response\n         response.status_code = status_code\n",
+    "file_contents": {
+      "fastapi/routing.py": "async def serialize_response(response, status_code):\n    if isinstance(response, Response):\n        # Do not override explicitly configured status codes on Response objects\n        if response.status_code is not None:\n            return response\n        response.status_code = status_code\n        return response\n    return response\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "fastapi/routing.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 5
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "fastapi/routing.py",
+        "start_line": 4,
+        "end_line": 5,
+        "title": "Response status code unexpectedly overridden by route default",
+        "description": "Returning a custom Response with explicit status code must not be overwritten by the endpoint default status.",
+        "evidence": "if response.status_code is not None: return response",
+        "suggested_remediation": "Preserve existing status code on Response instances."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "tiangolo/fastapi",
+    "commit_id": "1d37449c25f46a6f1fa1f1e28cf69db77b6e92ba",
+    "is_clean": false,
+    "fix_reference": "BugsInPy FastAPI-1 / PR #387"
+  },
+  {
+    "case_id": "real-fastapi-02-query-param-attribute-error",
+    "description": "Unchecked sub_field access causes AttributeError on non-field parameters",
+    "diff_text": "diff --git a/fastapi/dependencies/utils.py b/fastapi/dependencies/utils.py\n--- a/fastapi/dependencies/utils.py\n+++ b/fastapi/dependencies/utils.py\n@@ -3,3 +3,5 @@ def get_param_sub_fields(field):\n     for sub_field in field.sub_fields or []:\n+        if not hasattr(sub_field, \"field_info\"):\n+            continue\n         embed = sub_field.field_info.embed\n",
+    "file_contents": {
+      "fastapi/dependencies/utils.py": "def get_param_sub_fields(field):\n    results = []\n    for sub_field in field.sub_fields or []:\n        if not hasattr(sub_field, \"field_info\"):\n            continue\n        embed = sub_field.field_info.embed\n        results.append(embed)\n    return results\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "fastapi/dependencies/utils.py",
+        "line_range": {
+          "start_line": 4,
+          "end_line": 5
+        },
+        "category": "correctness",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "medium",
+        "confidence": "high",
+        "file_path": "fastapi/dependencies/utils.py",
+        "start_line": 4,
+        "end_line": 5,
+        "title": "Missing hasattr check on sub_field raises AttributeError",
+        "description": "Directly reading sub_field.field_info without existence verification causes runtime crash for primitive types.",
+        "evidence": "if not hasattr(sub_field, \"field_info\"): continue",
+        "suggested_remediation": "Check for field_info attribute existence before access."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "tiangolo/fastapi",
+    "commit_id": "e8f49e0b1c53d100b217fa33d3b7634f31c4f74d",
+    "is_clean": false,
+    "fix_reference": "BugsInPy FastAPI-14 / Issue #852"
+  },
+  {
+    "case_id": "real-fastapi-03-clean-app-middleware-typing",
+    "description": "Clean middleware typing annotation in FastAPI.__init__",
+    "diff_text": "diff --git a/fastapi/applications.py b/fastapi/applications.py\n--- a/fastapi/applications.py\n+++ b/fastapi/applications.py\n@@ -3,3 +3,4 @@ class FastAPI:\n         title: str = \"FastAPI\",\n+        middleware: Sequence[Middleware] | None = None,\n     ) -> None:\n",
+    "file_contents": {
+      "fastapi/applications.py": "class FastAPI:\n    def __init__(\n        self,\n        title: str = \"FastAPI\",\n        middleware: Sequence[Middleware] | None = None,\n    ) -> None:\n        self.title = title\n        self.middleware = middleware or []\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "tiangolo/fastapi",
+    "commit_id": "4c5f903820ea3f2b69f88c5efba7e44a499318b7",
+    "is_clean": true,
+    "fix_reference": "PR #1280"
+  },
+  {
+    "case_id": "real-black-01-tuple-slice-trailing-comma",
+    "description": "Trailing comma incorrectly emitted inside single-element subscript slice",
+    "diff_text": "diff --git a/src/black/__init__.py b/src/black/__init__.py\n--- a/src/black/__init__.py\n+++ b/src/black/__init__.py\n@@ -2,3 +2,5 @@ def format_slice(node):\n     if is_single_element_subscript(node):\n+        # Do not format as a 1-tuple with trailing comma\n+        return format_single_index(node)\n     return format_complex_slice(node)\n",
+    "file_contents": {
+      "src/black/__init__.py": "def format_slice(node):\n    if is_single_element_subscript(node):\n        # Do not format as a 1-tuple with trailing comma\n        return format_single_index(node)\n    return format_complex_slice(node)\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/black/__init__.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 4
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/black/__init__.py",
+        "start_line": 3,
+        "end_line": 4,
+        "title": "Erroneous trailing comma in subscript index syntax",
+        "description": "Emitting a trailing comma turns val[x] into val[x,], producing invalid syntax or altering lookup semantics.",
+        "evidence": "return format_single_index(node)",
+        "suggested_remediation": "Avoid trailing comma for single-element subscript slices."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/black",
+    "commit_id": "5cbcf1bbecba416346bc3741bcf76a084128f73f",
+    "is_clean": false,
+    "fix_reference": "BugsInPy Black-1 / Issue #817"
+  },
+  {
+    "case_id": "real-black-02-empty-parens-comment-crash",
+    "description": "IndexError on empty parentheses containing only trailing comments",
+    "diff_text": "diff --git a/src/black/__init__.py b/src/black/__init__.py\n--- a/src/black/__init__.py\n+++ b/src/black/__init__.py\n@@ -2,3 +2,5 @@ def split_empty_parens(leaves):\n     if not leaves:\n+        return []\n     first_leaf = leaves[0]\n",
+    "file_contents": {
+      "src/black/__init__.py": "def split_empty_parens(leaves):\n    if not leaves:\n        return []\n    first_leaf = leaves[0]\n    return [first_leaf]\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/black/__init__.py",
+        "line_range": {
+          "start_line": 2,
+          "end_line": 3
+        },
+        "category": "boundary_condition",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "medium",
+        "confidence": "high",
+        "file_path": "src/black/__init__.py",
+        "start_line": 2,
+        "end_line": 3,
+        "title": "IndexError on empty leaf sequence in parentheses handler",
+        "description": "Accessing leaves[0] when leaves is empty causes unhandled IndexError.",
+        "evidence": "if not leaves: return []",
+        "suggested_remediation": "Guard leaves list against empty condition before indexing."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "psf/black",
+    "commit_id": "c4dd97241cfda4e97eb1df0a8b139eef76550604",
+    "is_clean": false,
+    "fix_reference": "BugsInPy Black-4 / Issue #1021"
+  },
+  {
+    "case_id": "real-black-03-clean-target-version-enum",
+    "description": "Add Python 3.12 target version enum member without logic alterations",
+    "diff_text": "diff --git a/src/black/mode.py b/src/black/mode.py\n--- a/src/black/mode.py\n+++ b/src/black/mode.py\n@@ -2,2 +2,3 @@ class TargetVersion(Enum):\n     PY311 = 11\n+    PY312 = 12\n",
+    "file_contents": {
+      "src/black/mode.py": "class TargetVersion(Enum):\n    PY310 = 10\n    PY311 = 11\n    PY312 = 12\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "psf/black",
+    "commit_id": "bf49d21c97f1fbc21e64b850d515a01bc1824cb7",
+    "is_clean": true,
+    "fix_reference": "Clean enum addition"
+  },
+  {
+    "case_id": "real-pytest-01-walrus-assert-rewrite-crash",
+    "description": "Assertion rewriter crashes when transforming named expressions (walrus operator)",
+    "diff_text": "diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py\n--- a/src/_pytest/assertion/rewrite.py\n+++ b/src/_pytest/assertion/rewrite.py\n@@ -2,3 +2,6 @@ class AssertionRewriter:\n     def visit_NamedExpr(self, node):\n+        # Walrus operator assignment inside assertion requires special handling\n+        self.visit(node.value)\n+        return node\n",
+    "file_contents": {
+      "src/_pytest/assertion/rewrite.py": "class AssertionRewriter:\n    def visit_NamedExpr(self, node):\n        # Walrus operator assignment inside assertion requires special handling\n        self.visit(node.value)\n        return node\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/_pytest/assertion/rewrite.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 5
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/_pytest/assertion/rewrite.py",
+        "start_line": 3,
+        "end_line": 5,
+        "title": "Assertion rewrite visitor mishandles NamedExpr AST nodes",
+        "description": "Transforming assert statements containing walrus assignments causes crash due to missing node visitor handling.",
+        "evidence": "self.visit(node.value)",
+        "suggested_remediation": "Visit child value expressions in NamedExpr."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pytest-dev/pytest",
+    "commit_id": "877e68fa707577579da274c4aaef5bbf0a7479fc",
+    "is_clean": false,
+    "fix_reference": "Pytest Issue #7489"
+  },
+  {
+    "case_id": "real-pytest-02-surrogate-character-crash",
+    "description": "Terminal summary printer crashes on surrogate characters in test parameters",
+    "diff_text": "diff --git a/src/_pytest/terminal.py b/src/_pytest/terminal.py\n--- a/src/_pytest/terminal.py\n+++ b/src/_pytest/terminal.py\n@@ -2,3 +2,5 @@ class TerminalReporter:\n     def write_line(self, line: str) -> None:\n+        # Handle surrogate code points without crashing terminal writer\n+        line = line.encode(\"utf-8\", errors=\"backslashreplace\").decode(\"utf-8\")\n         self._file.write(line + \"\\n\")\n",
+    "file_contents": {
+      "src/_pytest/terminal.py": "class TerminalReporter:\n    def write_line(self, line: str) -> None:\n        # Handle surrogate code points without crashing terminal writer\n        line = line.encode(\"utf-8\", errors=\"backslashreplace\").decode(\"utf-8\")\n        self._file.write(line + \"\\n\")\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/_pytest/terminal.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 4
+        },
+        "category": "error_handling",
+        "severity": "medium"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "error_handling",
+        "severity": "medium",
+        "confidence": "high",
+        "file_path": "src/_pytest/terminal.py",
+        "start_line": 3,
+        "end_line": 4,
+        "title": "Terminal output crash on lone surrogate code points",
+        "description": "Printing test names with surrogate characters causes unhandled UnicodeEncodeError on standard streams.",
+        "evidence": "line = line.encode(\"utf-8\", errors=\"backslashreplace\").decode(\"utf-8\")",
+        "suggested_remediation": "Replace lone surrogates safely during terminal output formatting."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "pytest-dev/pytest",
+    "commit_id": "b1935e58c8949826a76e01a8f30c6a5a87856c5e",
+    "is_clean": false,
+    "fix_reference": "Pytest Issue #8162"
+  },
+  {
+    "case_id": "real-pytest-03-clean-fixture-docstring",
+    "description": "Clean documentation update on fixture caching lifecycle",
+    "diff_text": "diff --git a/src/_pytest/fixtures.py b/src/_pytest/fixtures.py\n--- a/src/_pytest/fixtures.py\n+++ b/src/_pytest/fixtures.py\n@@ -2,3 +2,5 @@ class FixtureDef:\n     def finish(self) -> None:\n+        \"\"\"Teardown fixture execution and reset cached results.\"\"\"\n         try:\n",
+    "file_contents": {
+      "src/_pytest/fixtures.py": "class FixtureDef:\n    def finish(self) -> None:\n        \"\"\"Teardown fixture execution and reset cached results.\"\"\"\n        self.cached_result = None\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "pytest-dev/pytest",
+    "commit_id": "df8a719c836c28f6208575a74e50dbceaa5051b7",
+    "is_clean": true,
+    "fix_reference": "Clean documentation update"
+  },
+  {
+    "case_id": "real-tqdm-01-zero-elapsed-division",
+    "description": "ZeroDivisionError when computing rate smoothing when delta_t is zero",
+    "diff_text": "diff --git a/tqdm/std.py b/tqdm/std.py\n--- a/tqdm/std.py\n+++ b/tqdm/std.py\n@@ -2,3 +2,5 @@ class tqdm:\n-        rate = dn / delta_t\n+        if delta_t <= 0:\n+            return 0.0\n+        rate = dn / delta_t\n",
+    "file_contents": {
+      "tqdm/std.py": "class tqdm:\n    def compute_rate(self, dn, delta_t):\n        if delta_t <= 0:\n            return 0.0\n        rate = dn / delta_t\n        return rate\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "tqdm/std.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 5
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "tqdm/std.py",
+        "start_line": 3,
+        "end_line": 5,
+        "title": "ZeroDivisionError in progress rate calculation",
+        "description": "When timer delta_t is 0, dividing dn by delta_t causes an unhandled ZeroDivisionError.",
+        "evidence": "rate = dn / delta_t",
+        "suggested_remediation": "Guard division by checking if delta_t <= 0."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "tqdm/tqdm",
+    "commit_id": "5051df0931aa96e62c1ae3dc991c4d4fdf80e9a7",
+    "is_clean": false,
+    "fix_reference": "BugsInPy Tqdm-1 / Issue #465"
+  },
+  {
+    "case_id": "real-tqdm-02-clean-version-read",
+    "description": "Clean version fallback string handling",
+    "diff_text": "diff --git a/tqdm/version.py b/tqdm/version.py\n--- a/tqdm/version.py\n+++ b/tqdm/version.py\n@@ -1,3 +1,4 @@\n-    __version__ = \"4.65.0\"\n+    __version__ = \"4.66.0\"\n except Exception:\n",
+    "file_contents": {
+      "tqdm/version.py": "try:\n    __version__ = \"4.66.0\"\nexcept Exception:\n    __version__ = \"unknown\"\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "tqdm/tqdm",
+    "commit_id": "3d6bf9148d8d7a1264b3ef726a798d1a153b6cb5",
+    "is_clean": true,
+    "fix_reference": "Clean version fallback"
+  },
+  {
+    "case_id": "real-deicide-01-budget-negative-underflow",
+    "description": "Negative context token budget underflow when baseline prompt exceeds limit",
+    "diff_text": "diff --git a/src/deicide/modules/code_review.py b/src/deicide/modules/code_review.py\n--- a/src/deicide/modules/code_review.py\n+++ b/src/deicide/modules/code_review.py\n@@ -2,3 +2,3 @@ class CodeReviewModule:\n-        available_context_tokens = budget.max_context_tokens - baseline_tokens\n+        available_context_tokens = max(0, budget.max_context_tokens - baseline_tokens)\n",
+    "file_contents": {
+      "src/deicide/modules/code_review.py": "class CodeReviewModule:\n    def calculate_budget(self, budget, baseline_tokens):\n        available_context_tokens = max(0, budget.max_context_tokens - baseline_tokens)\n        return available_context_tokens\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/deicide/modules/code_review.py",
+        "line_range": {
+          "start_line": 3,
+          "end_line": 3
+        },
+        "category": "boundary_condition",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "boundary_condition",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/deicide/modules/code_review.py",
+        "start_line": 3,
+        "end_line": 3,
+        "title": "Negative context token budget calculation underflow",
+        "description": "When baseline_tokens exceeds max_context_tokens, subtracting yields a negative integer causing downstream allocation failures.",
+        "evidence": "available_context_tokens = max(0, budget.max_context_tokens - baseline_tokens)",
+        "suggested_remediation": "Clamp available context tokens to 0 using max(0, ...)."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "DEICIDE",
+    "commit_id": "a76d89b",
+    "is_clean": false,
+    "fix_reference": "Local fix commit a76d89b"
+  },
+  {
+    "case_id": "real-deicide-02-deletion-diff-symbol-miss",
+    "description": "Symbol extraction returns zero symbols on deletion-only diffs",
+    "diff_text": "diff --git a/src/deicide/context/python_ast.py b/src/deicide/context/python_ast.py\n--- a/src/deicide/context/python_ast.py\n+++ b/src/deicide/context/python_ast.py\n@@ -3,3 +3,5 @@ class PythonAstAnalyzer:\n         for hunk in file_diff.hunks:\n+            # Inspect deleted lines to detect affected symbols in deletions\n+            for old_line in range(hunk.old_start, hunk.old_start + hunk.old_count):\n+                affected_lines.add(old_line)\n",
+    "file_contents": {
+      "src/deicide/context/python_ast.py": "class PythonAstAnalyzer:\n    def extract_affected_lines(self, file_diff):\n        affected_lines = set()\n        for hunk in file_diff.hunks:\n            # Inspect deleted lines to detect affected symbols in deletions\n            for old_line in range(hunk.old_start, hunk.old_start + hunk.old_count):\n                affected_lines.add(old_line)\n        return affected_lines\n"
+    },
+    "expected_findings": [
+      {
+        "file_path": "src/deicide/context/python_ast.py",
+        "line_range": {
+          "start_line": 5,
+          "end_line": 7
+        },
+        "category": "correctness",
+        "severity": "high"
+      }
+    ],
+    "candidate_findings": [
+      {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "file_path": "src/deicide/context/python_ast.py",
+        "start_line": 5,
+        "end_line": 7,
+        "title": "Deletion-only diffs fail to identify affected symbols",
+        "description": "Only checking addition lines misses symbols in pure deletion diffs, leaving context discovery empty.",
+        "evidence": "for old_line in range(hunk.old_start, hunk.old_start + hunk.old_count):",
+        "suggested_remediation": "Inspect hunk.old_start and hunk.old_count for deletions."
+      }
+    ],
+    "supplementary_snippets": [],
+    "repository": "DEICIDE",
+    "commit_id": "ae580a6",
+    "is_clean": false,
+    "fix_reference": "Local fix commit ae580a6"
+  },
+  {
+    "case_id": "real-deicide-03-clean-readme-docs",
+    "description": "Clean documentation update for context engine CLI options",
+    "diff_text": "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,4 @@\n # DEICIDE\n+## Context Engine\n+DEICIDE includes an AST-powered context selection engine.\n",
+    "file_contents": {
+      "README.md": "# DEICIDE\n## Context Engine\nDEICIDE includes an AST-powered context selection engine.\n"
+    },
+    "expected_findings": [],
+    "candidate_findings": [],
+    "supplementary_snippets": [],
+    "repository": "DEICIDE",
+    "commit_id": "cfc826d",
+    "is_clean": true,
+    "fix_reference": "Commit cfc826d"
+  }
+]

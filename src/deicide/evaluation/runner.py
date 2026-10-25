@@ -49,6 +49,7 @@ def evaluate_case(
     module: AnalysisModule | None = None,
     budget: ExecutionBudget | None = None,
     use_baseline: bool = False,
+    force_end_to_end: bool = False,
 ) -> CaseEvaluationResult:
     """Run a single EvaluationFixture and compute TP, FP, FN, latency, and token consumption."""
     active_module = module or CodeReviewModule()
@@ -88,7 +89,7 @@ def evaluate_case(
             selected_snippets_count=len(selected_snippets),
         )
 
-    if fixture.candidate_findings:
+    if not force_end_to_end and fixture.candidate_findings:
         candidates = list(fixture.candidate_findings)
     else:
         try:
@@ -182,6 +183,7 @@ def evaluate_corpus(
     module: AnalysisModule | None = None,
     budget: ExecutionBudget | None = None,
     use_baseline: bool = False,
+    force_end_to_end: bool = False,
 ) -> EvaluationSummary:
     """Evaluate a corpus of fixtures and aggregate precision, recall, latency, and tokens."""
     case_results: list[CaseEvaluationResult] = []
@@ -209,6 +211,7 @@ def evaluate_corpus(
             module=module,
             budget=budget,
             use_baseline=use_baseline,
+            force_end_to_end=force_end_to_end,
         )
         case_results.append(res)
         total_tp += res.true_positives
@@ -238,6 +241,7 @@ def evaluate_corpus(
         false_positive_rate=round(fp_rate, 4),
         duplicates_reduced=total_duplicates_reduced,
         legitimate_rejected=total_legitimate_rejected,
+        evaluation_mode="end_to_end" if force_end_to_end else "post_processing",
         total_latency_ms=total_latency_ms,
         average_latency_ms=round(avg_latency, 2),
         usage=total_usage,
