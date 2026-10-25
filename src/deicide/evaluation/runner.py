@@ -18,6 +18,7 @@ from deicide.core.registry import AnalysisModule
 from deicide.evaluation.baseline import baseline_process_candidates
 from deicide.evaluation.models import (
     CaseEvaluationResult,
+    ChangeType,
     EvaluationFixture,
     EvaluationSummary,
 )
@@ -67,6 +68,7 @@ def evaluate_case(
     force_end_to_end: bool = False,
     strict_severity: bool = False,
     tracker: BudgetTracker | None = None,
+    skip_unsuitable: bool = False,
 ) -> CaseEvaluationResult:
     """Run a single EvaluationFixture and compute TP, FP, FN, latency, and token consumption."""
     active_module = module or CodeReviewModule()
@@ -76,6 +78,24 @@ def evaluate_case(
         provider_name=provider.provider_name,
         model_name=provider.model_name,
     )
+
+    if skip_unsuitable and not fixture.is_suitable_for_live_benchmark:
+        return CaseEvaluationResult(
+            case_id=fixture.case_id,
+            true_positives=0,
+            false_positives=0,
+            false_negatives=0,
+            duplicates_reduced=0,
+            legitimate_rejected=0,
+            severity_mismatches=0,
+            latency_ms=0,
+            usage=active_tracker.usage,
+            actual_findings=[],
+            status="skipped",
+            error="Skipped fixture unsuitable for live benchmark",
+            provenance=fixture.resolved_provenance,
+            change_type=fixture.resolved_change_type,
+        )
 
     start_ns = time.perf_counter_ns()
     parsed_files = parse_unified_diff(fixture.diff_text)
@@ -147,7 +167,7 @@ def evaluate_case(
             case_id=fixture.case_id,
             true_positives=0,
             false_positives=0,
-            false_negatives=len(fixture.expected_findings),
+            false_negatives=0,
             duplicates_reduced=0,
             legitimate_rejected=0,
             severity_mismatches=0,
@@ -157,6 +177,7 @@ def evaluate_case(
             status=case_status,
             error=case_error,
             provenance=fixture.resolved_provenance,
+            change_type=fixture.resolved_change_type,
         )
 
     if use_baseline:
@@ -181,6 +202,10 @@ def evaluate_case(
 
     elapsed_ms = max(0, int((time.perf_counter_ns() - start_ns) / 1_000_000))
 
+    effective_expected = fixture.expected_findings
+    if force_end_to_end and fixture.resolved_change_type == ChangeType.CLEAN_BUG_FIX:
+        effective_expected = []
+
     matched_expected_indices: set[int] = set()
     tp = 0
     fp = 0
@@ -188,7 +213,7 @@ def evaluate_case(
 
     for actual in actual_findings:
         matched = False
-        for idx, expected in enumerate(fixture.expected_findings):
+        for idx, expected in enumerate(effective_expected):
             if idx not in matched_expected_indices and expected.matches(actual, strict_severity=strict_severity):
                 matched_expected_indices.add(idx)
                 matched = True
@@ -200,11 +225,11 @@ def evaluate_case(
         else:
             fp += 1
 
-    fn = len(fixture.expected_findings) - len(matched_expected_indices)
+    fn = len(effective_expected) - len(matched_expected_indices)
 
     # Calculate legitimate findings incorrectly rejected (ground truth in candidates but missing from actual)
     legitimate_rejected = 0
-    for idx, expected in enumerate(fixture.expected_findings):
+    for idx, expected in enumerate(effective_expected):
         if idx not in matched_expected_indices:
             candidate_present = any(
                 c.file_path == expected.file_path
@@ -231,6 +256,7 @@ def evaluate_case(
         status="completed",
         error=None,
         provenance=fixture.resolved_provenance,
+        change_type=fixture.resolved_change_type,
     )
 
 
@@ -244,6 +270,7 @@ def evaluate_corpus(
     strict_severity: bool = False,
     max_cases: int | None = None,
     shared_tracker: BudgetTracker | None = None,
+    skip_unsuitable: bool = False,
 ) -> EvaluationSummary:
     """Evaluate a corpus of fixtures and aggregate precision, recall, latency, and tokens."""
     evaluated_fixtures = fixtures
@@ -272,11 +299,15 @@ def evaluate_corpus(
     total_latency_ms = 0
     positive_cases = 0
     negative_cases = 0
+    successful_negative_cases = 0
     negative_cases_with_fp = 0
     verified_cases = 0
     reference_modeled_cases = 0
     unverified_cases = 0
-    failed_cases = 0
+    successful_cases = 0
+    api_failed_cases = 0
+    budget_exhausted_cases = 0
+    skipped_cases = 0
     budget_exhausted = False
 
     for fixture in evaluated_fixtures:
@@ -288,8 +319,11 @@ def evaluate_corpus(
         else:
             unverified_cases += 1
 
-        is_positive = len(fixture.expected_findings) > 0
-        if is_positive:
+        effective_is_positive = len(fixture.expected_findings) > 0
+        if force_end_to_end and fixture.resolved_change_type == ChangeType.CLEAN_BUG_FIX:
+            effective_is_positive = False
+
+        if effective_is_positive:
             positive_cases += 1
         else:
             negative_cases += 1
@@ -303,41 +337,60 @@ def evaluate_corpus(
             force_end_to_end=force_end_to_end,
             strict_severity=strict_severity,
             tracker=active_tracker,
+            skip_unsuitable=skip_unsuitable,
         )
         case_results.append(res)
-        total_tp += res.true_positives
-        total_fp += res.false_positives
-        total_fn += res.false_negatives
-        total_duplicates_reduced += res.duplicates_reduced
-        total_legitimate_rejected += res.legitimate_rejected
-        total_severity_mismatches += res.severity_mismatches
-        total_latency_ms += res.latency_ms
 
-        if not is_positive and res.false_positives > 0:
-            negative_cases_with_fp += 1
-
-        if res.status == "budget_exhausted":
+        if res.status == "completed":
+            successful_cases += 1
+            total_tp += res.true_positives
+            total_fp += res.false_positives
+            total_fn += res.false_negatives
+            total_duplicates_reduced += res.duplicates_reduced
+            total_legitimate_rejected += res.legitimate_rejected
+            total_severity_mismatches += res.severity_mismatches
+            total_latency_ms += res.latency_ms
+            if not effective_is_positive:
+                successful_negative_cases += 1
+                if res.false_positives > 0:
+                    negative_cases_with_fp += 1
+        elif res.status == "budget_exhausted":
             budget_exhausted = True
-            failed_cases += 1
+            budget_exhausted_cases += 1
             break
-        elif res.status != "completed":
-            failed_cases += 1
+        elif res.status == "skipped":
+            skipped_cases += 1
+        else:
+            api_failed_cases += 1
 
-    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 1.0
-    fp_rate = negative_cases_with_fp / negative_cases if negative_cases > 0 else 0.0
-    avg_latency = total_latency_ms / len(case_results) if case_results else 0.0
+    failed_cases = api_failed_cases + budget_exhausted_cases
+
+    if successful_cases == 0:
+        precision = None
+        recall = None
+        fp_rate = None
+    else:
+        precision = round(total_tp / (total_tp + total_fp), 4) if (total_tp + total_fp) > 0 else 0.0
+        recall = round(total_tp / (total_tp + total_fn), 4) if (total_tp + total_fn) > 0 else 1.0
+        fp_rate = round(negative_cases_with_fp / successful_negative_cases, 4) if successful_negative_cases > 0 else 0.0
+
+    avg_latency = total_latency_ms / successful_cases if successful_cases > 0 else 0.0
 
     return EvaluationSummary(
         dataset_size=len(case_results),
         positive_cases=positive_cases,
         negative_cases=negative_cases,
+        successful_cases=successful_cases,
+        failed_cases=failed_cases,
+        api_failed_cases=api_failed_cases,
+        budget_exhausted_cases=budget_exhausted_cases,
+        skipped_cases=skipped_cases,
         true_positives=total_tp,
         false_positives=total_fp,
         false_negatives=total_fn,
-        precision=round(precision, 4),
-        recall=round(recall, 4),
-        false_positive_rate=round(fp_rate, 4),
+        precision=precision,
+        recall=recall,
+        false_positive_rate=fp_rate,
         duplicates_reduced=total_duplicates_reduced,
         legitimate_rejected=total_legitimate_rejected,
         severity_mismatches=total_severity_mismatches,
@@ -348,7 +401,6 @@ def evaluate_corpus(
         verified_cases=verified_cases,
         reference_modeled_cases=reference_modeled_cases,
         unverified_cases=unverified_cases,
-        failed_cases=failed_cases,
         budget_exhausted=budget_exhausted,
         max_cases_applied=max_cases_applied,
         case_results=case_results,

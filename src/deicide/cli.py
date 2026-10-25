@@ -387,6 +387,13 @@ def evaluate_command(
             help="Maximum automatic retries on transient rate-limits or server errors.",
         ),
     ] = None,
+    skip_unsuitable: Annotated[
+        bool,
+        typer.Option(
+            "--skip-unsuitable",
+            help="Skip fixtures marked unsuitable for live defect detection benchmarking.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option(
@@ -430,6 +437,7 @@ def evaluate_command(
             force_end_to_end=end_to_end,
             strict_severity=strict_severity,
             max_cases=max_cases,
+            skip_unsuitable=skip_unsuitable,
         )
 
         if config.output_format == OutputFormat.JSON:
@@ -456,15 +464,26 @@ def evaluate_command(
                 f"Counts              : TP={summary.true_positives}, "
                 f"FP={summary.false_positives}, FN={summary.false_negatives}"
             )
-            typer.echo(f"Precision           : {summary.precision:.2%}")
-            typer.echo(f"Recall              : {summary.recall:.2%}")
-            typer.echo(f"False Positive Rate : {summary.false_positive_rate:.2%}")
+            prec_str = f"{summary.precision:.2%}" if summary.precision is not None else "unavailable"
+            rec_str = f"{summary.recall:.2%}" if summary.recall is not None else "unavailable"
+            fpr_str = f"{summary.false_positive_rate:.2%}" if summary.false_positive_rate is not None else "unavailable"
+            typer.echo(f"Precision           : {prec_str}")
+            typer.echo(f"Recall              : {rec_str}")
+            typer.echo(f"False Positive Rate : {fpr_str}")
             typer.echo(f"Duplicates Reduced  : {summary.duplicates_reduced}")
             typer.echo(f"Legitimate Rejected : {summary.legitimate_rejected}")
             if summary.severity_mismatches > 0:
                 typer.echo(f"Severity Mismatches : {summary.severity_mismatches}")
-            if summary.failed_cases > 0:
-                typer.echo(f"Failed Cases (API)  : {summary.failed_cases}")
+            if summary.successful_cases > 0:
+                typer.echo(f"Successful Cases    : {summary.successful_cases}")
+            if summary.api_failed_cases > 0:
+                typer.echo(f"API Failed Cases    : {summary.api_failed_cases}")
+            if summary.budget_exhausted_cases > 0:
+                typer.echo(f"Budget Exhausted    : {summary.budget_exhausted_cases}")
+            if summary.skipped_cases > 0:
+                typer.echo(f"Skipped Cases       : {summary.skipped_cases}")
+            elif summary.failed_cases > 0:
+                typer.echo(f"Failed Cases        : {summary.failed_cases}")
             if summary.budget_exhausted:
                 typer.echo("Budget Status       : STOPPED (Budget / Quota Exhausted)")
             typer.echo(

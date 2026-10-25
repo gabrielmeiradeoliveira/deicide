@@ -47,7 +47,9 @@
     "repository": "psf/requests",
     "commit_id": "74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5",
     "is_clean": false,
-    "fix_reference": "CVE-2023-32681 / PR #6444"
+    "fix_reference": "CVE-2023-32681 / PR #6444",
+    "change_type": "clean_bug_fix",
+    "suitable_for_live_benchmark": false
   },
   {
     "case_id": "real-cpython-01-urlsplit-whitespace-bypass",
@@ -85,7 +87,9 @@
     "repository": "python/cpython",
     "commit_id": "38706037a5416dc25d0c0a373ff28ff27863aa99",
     "is_clean": false,
-    "fix_reference": "CVE-2023-24329 / gh-102153"
+    "fix_reference": "CVE-2023-24329 / gh-102153",
+    "change_type": "clean_bug_fix",
+    "suitable_for_live_benchmark": false
   },
   {
     "case_id": "real-flask-01-null-byte-session-dos",
@@ -123,7 +127,9 @@
     "repository": "pallets/flask",
     "commit_id": "e3e5792942467d165f992a5ee11f0d367fa6dbba",
     "is_clean": false,
-    "fix_reference": "CVE-2018-1000656"
+    "fix_reference": "CVE-2018-1000656",
+    "change_type": "clean_bug_fix",
+    "suitable_for_live_benchmark": false
   },
   {
     "case_id": "real-tqdm-01-zero-elapsed-division",
@@ -161,7 +167,9 @@
     "repository": "tqdm/tqdm",
     "commit_id": "5051df0931aa96e62c1ae3dc991c4d4fdf80e9a7",
     "is_clean": false,
-    "fix_reference": "BugsInPy Tqdm-1 / Issue #465"
+    "fix_reference": "BugsInPy Tqdm-1 / Issue #465",
+    "change_type": "clean_bug_fix",
+    "suitable_for_live_benchmark": false
   },
   {
     "case_id": "real-deicide-03-clean-readme-docs",
@@ -176,6 +184,8 @@
     "repository": "DEICIDE",
     "commit_id": "cfc826d",
     "is_clean": true,
-    "fix_reference": "Commit cfc826d"
+    "fix_reference": "Commit cfc826d",
+    "change_type": "clean_unrelated",
+    "suitable_for_live_benchmark": true
   }
 ]

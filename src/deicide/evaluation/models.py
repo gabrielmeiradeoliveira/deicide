@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +15,15 @@ from deicide.core.models import (
     Severity,
     TokenUsage,
 )
+
+
+class ChangeType(StrEnum):
+    """Semantic classification of code changes in benchmark fixtures."""
+
+    DEFECT_INTRODUCTION = "defect_introduction"  # Buggy change that introduces a defect
+    VULNERABLE_SNAPSHOT = "vulnerable_snapshot"  # Vulnerable pre-fix snapshot
+    CLEAN_BUG_FIX = "clean_bug_fix"  # Clean change that fixes an existing defect
+    CLEAN_UNRELATED = "clean_unrelated"  # Clean change unrelated to a defect
 
 
 class ExpectedFindingSpec(BaseModel):
@@ -60,6 +70,8 @@ class EvaluationFixture(BaseModel):
     is_clean: bool = False
     fix_reference: str | None = None
     provenance: str | None = None
+    change_type: ChangeType | None = None
+    suitable_for_live_benchmark: bool | None = None
 
     @property
     def resolved_provenance(self) -> str:
@@ -71,6 +83,26 @@ class EvaluationFixture(BaseModel):
         if self.is_clean:
             return "reference_modeled"
         return "fully_verified"
+
+    @property
+    def resolved_change_type(self) -> ChangeType:
+        """Resolve the semantic change type."""
+        if self.change_type is not None:
+            return self.change_type
+        if self.is_clean or not self.expected_findings:
+            return ChangeType.CLEAN_UNRELATED
+        return ChangeType.DEFECT_INTRODUCTION
+
+    @property
+    def is_suitable_for_live_benchmark(self) -> bool:
+        """Determine whether the fixture is suitable for live defect detection benchmarking.
+
+        A change that fixes an existing defect contains the fix rather than the bug,
+        and cannot be used to measure true positive defect detection.
+        """
+        if self.suitable_for_live_benchmark is not None:
+            return self.suitable_for_live_benchmark
+        return self.resolved_change_type not in (ChangeType.CLEAN_BUG_FIX, ChangeType.VULNERABLE_SNAPSHOT)
 
 
 class CaseEvaluationResult(BaseModel):
@@ -91,6 +123,7 @@ class CaseEvaluationResult(BaseModel):
     status: str = Field(default="completed")
     error: str | None = Field(default=None)
     provenance: str = Field(default="fully_verified")
+    change_type: ChangeType | str | None = Field(default=None)
 
 
 class EvaluationSummary(BaseModel):
@@ -101,12 +134,17 @@ class EvaluationSummary(BaseModel):
     dataset_size: int = Field(..., ge=0)
     positive_cases: int = Field(..., ge=0)
     negative_cases: int = Field(..., ge=0)
+    successful_cases: int = Field(default=0, ge=0)
+    failed_cases: int = Field(default=0, ge=0)
+    api_failed_cases: int = Field(default=0, ge=0)
+    budget_exhausted_cases: int = Field(default=0, ge=0)
+    skipped_cases: int = Field(default=0, ge=0)
     true_positives: int = Field(..., ge=0)
     false_positives: int = Field(..., ge=0)
     false_negatives: int = Field(..., ge=0)
-    precision: float = Field(..., ge=0.0, le=1.0)
-    recall: float = Field(..., ge=0.0, le=1.0)
-    false_positive_rate: float = Field(..., ge=0.0, le=1.0)
+    precision: float | None = Field(default=None, ge=0.0, le=1.0)
+    recall: float | None = Field(default=None, ge=0.0, le=1.0)
+    false_positive_rate: float | None = Field(default=None, ge=0.0, le=1.0)
     duplicates_reduced: int = Field(default=0, ge=0)
     legitimate_rejected: int = Field(default=0, ge=0)
     severity_mismatches: int = Field(default=0, ge=0)
@@ -117,7 +155,6 @@ class EvaluationSummary(BaseModel):
     verified_cases: int = Field(default=0, ge=0)
     reference_modeled_cases: int = Field(default=0, ge=0)
     unverified_cases: int = Field(default=0, ge=0)
-    failed_cases: int = Field(default=0, ge=0)
     budget_exhausted: bool = Field(default=False)
     max_cases_applied: int | None = Field(default=None)
     case_results: list[CaseEvaluationResult] = Field(default_factory=list)
